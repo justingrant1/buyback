@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function AdminLogin() {
+function AdminLoginForm() {
+
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/admin";
@@ -55,3 +56,13 @@ export default function AdminLogin() {
     </main>
   );
 }
+
+export default function AdminLogin() {
+  return (
+    <Suspense fallback={<main className="flex min-h-screen items-center justify-center px-4" />}>
+      <AdminLoginForm />
+    </Suspense>
+  );
+}
+
+
