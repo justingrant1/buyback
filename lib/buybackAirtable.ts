@@ -21,6 +21,11 @@ import type {
 } from "@/lib/types";
 
 const API = "https://api.airtable.com/v0";
+const CONTENT_API = "https://content.airtable.com/v0";
+/** Attachment field on the Buyback Items table that holds the customer's slab photo. */
+const PHOTO_FIELD = "Photo";
+
+
 
 interface AirtableRecord<T = Record<string, unknown>> {
   id: string;
@@ -151,10 +156,12 @@ export async function createBuyback(input: CreateBuybackInput): Promise<string> 
 }
 
 export async function addItems(buybackId: string, items: BuybackItem[]): Promise<void> {
-  // Airtable allows max 10 records per create call — chunk it.
+  // Airtable allows max 10 records per create call — chunk it. We keep the
+  // created record IDs aligned with the source items so we can attach each
+  // coin's photo (if any) right afterward.
   const chunks = chunk(items, 10);
   for (const group of chunks) {
-    await at(env.AIRTABLE_ITEMS_TABLE, {
+    const created = await at<{ records: { id: string }[] }>(env.AIRTABLE_ITEMS_TABLE, {
       method: "POST",
       body: JSON.stringify({
         typecast: true,
@@ -180,8 +187,52 @@ export async function addItems(buybackId: string, items: BuybackItem[]): Promise
         })),
       }),
     });
+
+    // Attach photos to the just-created rows. Best-effort: a failed upload
+    // must never sink the whole submission, so we swallow per-photo errors.
+    await Promise.all(
+      group.map((it, i) => {
+        const recordId = created.records[i]?.id;
+        if (!recordId || !it.photoDataUrl) return Promise.resolve();
+        return uploadItemPhoto(recordId, it.photoDataUrl).catch((e) => {
+          console.error(`[addItems] photo upload failed for ${recordId}:`, e?.message ?? e);
+        });
+      }),
+    );
   }
 }
+
+/**
+ * Upload a single base64 data-URL photo to the "Photo" attachment field of a
+ * Buyback Items record, using Airtable's content upload API. Files must be
+ * under 5 MB (our /sell capture is downscaled to ~1280px JPEG, well under).
+ */
+export async function uploadItemPhoto(recordId: string, photoDataUrl: string): Promise<void> {
+  const m = /^data:([^;]+);base64,(.+)$/.exec(photoDataUrl);
+  if (!m) return; // not a data URL — skip silently
+  const contentType = m[1] || "image/jpeg";
+  const base64 = m[2];
+  const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+
+  const url = `${CONTENT_API}/${env.AIRTABLE_BASE_ID}/${recordId}/${PHOTO_FIELD}/uploadAttachment`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.AIRTABLE_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contentType,
+      file: base64,
+      filename: `slab-${recordId}.${ext}`,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Airtable uploadAttachment ${res.status}: ${body.slice(0, 300)}`);
+  }
+}
+
 
 export async function updateBuyback(
   id: string,

@@ -48,7 +48,8 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | Path | Responsibility |
 |---|---|
 | `app/page.tsx` | Customer marketing landing page (CTA → `/sell`); discreet staff login top-right |
-| `app/sell/page.tsx` | Public intake form (manual entry **+ spreadsheet upload**) |
+| `app/sell/page.tsx` | Public intake form (manual entry **+ slab photo scan + spreadsheet upload**) |
+
 | `app/offer/[token]/page.tsx` | Token-gated customer offer review / accept / decline |
 | `app/admin/page.tsx` | Staff priority queue + KPIs |
 | `app/admin/[id]/page.tsx` | Bid-sheet editor (line items, margin, send offer, CSV) |
@@ -59,7 +60,9 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | `lib/pricing.ts` | Reference value, suggested offer, margin, VIP/low-value flags, priority score |
 | `lib/cdn.ts`, `lib/cdnCatalog.ts` | Greysheet/CDN bid-ask lookups |
 | `lib/pcgs.ts` | PCGS cert lookups |
-| `lib/vision.ts`, `lib/imageCrop.ts` | Slab photo → fields (Anthropic Vision) |
+| `lib/vision.ts`, `lib/imageCrop.ts` | Slab photo → fields (Anthropic Vision, internal Slab Pricer) |
+| `lib/slabPhoto.ts` | Customer slab photo → `BuybackItem` (single Claude vision call) |
+
 | `lib/buybackAirtable.ts` | Airtable read/write data layer |
 | `lib/shippo.ts` | Prepaid label generation (stubs when no key) |
 | `lib/email.ts` | Offer/label emails via SendGrid (logs when no key) |
@@ -84,6 +87,8 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | `/api/offer/:token/approve` | POST | Accept → Shippo label + email, or decline |
 | `/api/admin/login` | POST / DELETE | Staff login / logout |
 | `/api/parse-spreadsheet` | POST | Upload a customer CSV/XLSX → AI-mapped `BuybackItem[]` for the form |
+| `/api/scan-slab` | POST | Upload up to 2 slab photos → `BuybackItem[]` (Claude vision) for the form; each item carries its downscaled `photoDataUrl` |
+
 
 
 ---
@@ -108,7 +113,8 @@ All numbers above are env-driven so leadership/Marley can retune without code ch
 
 - **Customers** — name, email, phone, VIP flag, lifetime stats, # times sold back.
 - **Buybacks** — Ref, Status, Customer (link), Date Submitted/Received, Item Count, Estimated Value, Offer Amount, Margin %, Avg Coin Value, Approval Token, Label URL, Tracking #, Carrier, Source, Notes.
-- **Buyback Items** — Description, Qty, Grading Service, Cert #, Year, Denomination, Grade, CAC, CDN Bid/Ask, Dealer Ask, Offer, Category (Slab/Raw/Junk Silver/Gold/World).
+- **Buyback Items** — Description, Qty, Grading Service, Cert #, Year, Denomination, Grade, CAC, CDN Bid/Ask, Dealer Ask, Offer, Category (Slab/Raw/Junk Silver/Gold/World), **Photo** (attachment — the customer's slab photo, uploaded via Airtable's content API when present).
+
 
 Status lifecycle: `New → Pricing → Offer Sent → Approved/Declined → Label Sent → In Transit → Received → Paid`.
 
@@ -159,7 +165,8 @@ npm run build                # production build check
 1. **Spreadsheet upload (shipped)** — customers upload their existing CSV/Excel coin list on `/sell`; we parse it (SheetJS) and use a Claude tool-use call to map *their* arbitrary columns onto our fields (with a fuzzy keyword fallback), pre-filling the form for review. One AI call per file regardless of row count.
 2. **AI email parser** — for customers who won't leave email: read the inbox, extract coins from spreadsheets/images, draft a bid sheet straight into the queue (reuses the same `lib/csvMap.ts` mapping).
 3. **Arrival-date spot pricing** — auto-use the silver price from the day a package *arrived*, not today's, to prevent the mispricing Marley flagged.
-4. **Slab Pricer photo bridge** — "photograph the box of slabs" → items straight into a buyback (the camera flow demoed).
+4. **Slab photo scan (shipped)** — on `/sell`, customers photograph a graded slab (camera on mobile) and Claude vision extracts grading service, cert #, year, grade, and CAC into `BuybackItem`s for review (up to 2 slabs/scan). The downscaled photo is attached to the line item in Airtable. Next step: extend to a multi-slab "photograph the whole box" capture, bridging the internal Slab Pricer flow.
+
 5. **Payout tracking** — Stripe/ACH once coins are received and cleared.
 6. **Customer accounts / history** — repeat-seller recognition to keep big fish "in the fold."
 

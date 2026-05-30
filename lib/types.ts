@@ -34,7 +34,14 @@ export interface BuybackItem {
   offer?: number | null;
   category?: ItemCategory;
   notes?: string;
+  /**
+   * Downscaled slab photo as a base64 data URL. Client→server transport only
+   * (from the /sell camera capture); persisted as an Airtable attachment on
+   * the item, never stored as a literal field. Stripped before pricing.
+   */
+  photoDataUrl?: string;
 }
+
 
 /** Customer-supplied contact info from the public form. */
 export interface SellerContact {

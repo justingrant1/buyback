@@ -35,10 +35,53 @@ function rowFromItem(item: BuybackItem): Row {
     denomination: item.denomination,
     grade: item.grade ?? "",
     cac: item.cac,
+    photoDataUrl: item.photoDataUrl,
     ...((item as any).dealerAsk != null ? { dealerAsk: (item as any).dealerAsk } : {}),
     ...((item as any).faceValue != null ? { faceValue: (item as any).faceValue } : {}),
   } as Row;
 }
+
+/**
+ * Downscale + re-encode an image File to a JPEG data URL no larger than
+ * ~1280px on the long edge. Keeps photos cheap to send to the vision model
+ * and small enough for Airtable's attachment upload.
+ */
+async function downscaleToDataUrl(file: File, maxEdge = 1280, quality = 0.82): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("decode failed"));
+    el.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl; // fall back to original if canvas unavailable
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const [meta, b64] = dataUrl.split(",");
+  const mime = /data:([^;]+);/.exec(meta)?.[1] ?? "image/jpeg";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
+}
+
 
 
 export default function SellPage() {
@@ -56,6 +99,46 @@ export default function SellPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+
+  async function handlePhotos(fileList: FileList | null | undefined) {
+    const files = Array.from(fileList ?? []).slice(0, 2); // one slab each, max 2
+    if (!files.length) return;
+    setError(null);
+    setScanMsg(null);
+    setScanning(true);
+    try {
+      const fd = new FormData();
+      for (const f of files) {
+        // Downscale in the browser so we send small images and can keep a copy
+        // attached to the row for Airtable.
+        const dataUrl = await downscaleToDataUrl(f);
+        fd.append("photo", dataUrlToFile(dataUrl, f.name || "slab.jpg"));
+      }
+      const res = await fetch("/api/scan-slab", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "We couldn't read that photo.");
+
+      const parsed: BuybackItem[] = Array.isArray(data.items) ? data.items : [];
+      if (!parsed.length) throw new Error("No slab found in that photo.");
+
+      const newRows = parsed.map(rowFromItem);
+      setRows((rs) => {
+        const meaningful = rs.filter((r) => r.description.trim());
+        return meaningful.length ? [...meaningful, ...newRows] : newRows;
+      });
+      setScanMsg(data.summary ?? `Read ${newRows.length} slab(s). Review below.`);
+    } catch (e: any) {
+      setError(e?.message ?? "Photo scan failed.");
+    } finally {
+      setScanning(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  }
+
 
   async function handleFile(file: File | null | undefined) {
     if (!file) return;
@@ -197,11 +280,51 @@ export default function SellPage() {
         </div>
       </section>
 
+      {/* Snap a photo of a slab */}
+      <section className="card mb-6 p-5">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Have a graded slab? Snap a photo
+        </h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Take a clear, straight-on photo of the label (up to 2 slabs, one per photo).
+          We'll read the grading service, cert number, year, and grade and fill in the
+          coin below for you to review.
+        </p>
+
+        <label
+          htmlFor="slab-photo"
+          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
+        >
+          <span className="text-sm font-medium text-ink">
+            {scanning ? "Reading your slab…" : "Tap to take or choose a photo"}
+          </span>
+          <span className="mt-1 text-xs text-slate-400">JPG or PNG — up to 2 slabs</span>
+          <input
+            id="slab-photo"
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            className="hidden"
+            disabled={scanning}
+            onChange={(e) => handlePhotos(e.target.files)}
+          />
+        </label>
+
+        {scanMsg && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {scanMsg}
+          </p>
+        )}
+      </section>
+
       {/* Upload a spreadsheet */}
       <section className="card mb-6 p-5">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
           Have a list already?
         </h2>
+
         <p className="mb-4 text-sm text-slate-600">
           Upload your spreadsheet — CSV or Excel, with your columns in any order or
           naming. We'll read it, sort out the columns, and fill in your coins below
@@ -266,9 +389,24 @@ export default function SellPage() {
                 )}
               </div>
 
+              {row.photoDataUrl && (
+                <div className="mb-3 flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={row.photoDataUrl}
+                    alt="Scanned slab"
+                    className="h-16 w-16 rounded-md border border-slate-200 object-cover"
+                  />
+                  <span className="text-xs text-slate-400">
+                    Read from your photo — double-check the details below.
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
                 <div className="sm:col-span-4">
                   <label className="label">Description *</label>
+
                   <input
                     className="input"
                     value={row.description}

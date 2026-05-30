@@ -75,8 +75,10 @@ What you'll see and do here:
 ## What the customer sees
 
 1. They fill out the **Get My Offer** form (`/sell`): their info + their coins (slab cert #, raw coins, junk silver, gold).
+   - **They can snap a photo of a graded slab.** On a phone, the form opens the camera; the system reads the label (grading service, cert #, year, grade, CAC sticker) and fills in the coin for them to review — up to 2 slabs at a time. The photo is saved to the line item in Airtable, so you can see the actual coin next to its details.
    - **They can also just upload their own spreadsheet.** If a customer already keeps their coins in an Excel/CSV list (the way many of them email you today), they can drop that file onto the form. The system reads it — even if their column names are different from ours — and fills in the coin rows automatically. They get a chance to review/fix the rows before submitting.
-   - This means you can tell email customers: *"Just upload your list here and we'll take it from there"* — no more re-typing their spreadsheet into a bid sheet by hand.
+   - This means you can tell email customers: *"Just snap a photo or upload your list here and we'll take it from there"* — no more re-typing their spreadsheet into a bid sheet by hand.
+
 2. You price it and send the offer.
 3. They get an email, click the link, see the itemized offer, enter their ship-from address, and click **Accept** (or Decline).
 4. On Accept, a **prepaid, insured FedEx label** is generated and emailed to them automatically.
