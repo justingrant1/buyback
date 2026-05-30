@@ -48,12 +48,14 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | Path | Responsibility |
 |---|---|
 | `app/page.tsx` | Customer marketing landing page (CTA → `/sell`); discreet staff login top-right |
-| `app/sell/page.tsx` | Public intake form |
+| `app/sell/page.tsx` | Public intake form (manual entry **+ spreadsheet upload**) |
 | `app/offer/[token]/page.tsx` | Token-gated customer offer review / accept / decline |
 | `app/admin/page.tsx` | Staff priority queue + KPIs |
 | `app/admin/[id]/page.tsx` | Bid-sheet editor (line items, margin, send offer, CSV) |
 | `app/admin/login/page.tsx` | Staff login |
 | `app/api/**` | Route handlers (see API table) |
+| `lib/spreadsheet.ts` | Parse uploaded CSV/XLSX/XLS (SheetJS) + fuzzy header→field fallback |
+| `lib/csvMap.ts` | Claude tool-use column mapping for arbitrary customer spreadsheets |
 | `lib/pricing.ts` | Reference value, suggested offer, margin, VIP/low-value flags, priority score |
 | `lib/cdn.ts`, `lib/cdnCatalog.ts` | Greysheet/CDN bid-ask lookups |
 | `lib/pcgs.ts` | PCGS cert lookups |
@@ -65,6 +67,7 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | `lib/auth.ts`, `middleware.ts` | Session + route protection |
 | `lib/env.ts` | Validated env access + business-rule thresholds |
 | `lib/ref.ts` | Human-readable buyback reference codes |
+
 
 ---
 
@@ -80,6 +83,8 @@ Customer ──► /offer/:token ──► Accept ──► auto FedEx label (Sh
 | `/api/offer/:token` | GET | Customer-safe offer view |
 | `/api/offer/:token/approve` | POST | Accept → Shippo label + email, or decline |
 | `/api/admin/login` | POST / DELETE | Staff login / logout |
+| `/api/parse-spreadsheet` | POST | Upload a customer CSV/XLSX → AI-mapped `BuybackItem[]` for the form |
+
 
 ---
 
@@ -151,11 +156,13 @@ npm run build                # production build check
 
 ## 10. Roadmap (discussed, not yet built)
 
-1. **AI email parser** — for customers who won't leave email: read the inbox, extract coins from spreadsheets/images, draft a bid sheet straight into the queue.
-2. **Arrival-date spot pricing** — auto-use the silver price from the day a package *arrived*, not today's, to prevent the mispricing Marley flagged.
-3. **Slab Pricer photo bridge** — "photograph the box of slabs" → items straight into a buyback (the camera flow demoed).
-4. **Payout tracking** — Stripe/ACH once coins are received and cleared.
-5. **Customer accounts / history** — repeat-seller recognition to keep big fish "in the fold."
+1. **Spreadsheet upload (shipped)** — customers upload their existing CSV/Excel coin list on `/sell`; we parse it (SheetJS) and use a Claude tool-use call to map *their* arbitrary columns onto our fields (with a fuzzy keyword fallback), pre-filling the form for review. One AI call per file regardless of row count.
+2. **AI email parser** — for customers who won't leave email: read the inbox, extract coins from spreadsheets/images, draft a bid sheet straight into the queue (reuses the same `lib/csvMap.ts` mapping).
+3. **Arrival-date spot pricing** — auto-use the silver price from the day a package *arrived*, not today's, to prevent the mispricing Marley flagged.
+4. **Slab Pricer photo bridge** — "photograph the box of slabs" → items straight into a buyback (the camera flow demoed).
+5. **Payout tracking** — Stripe/ACH once coins are received and cleared.
+6. **Customer accounts / history** — repeat-seller recognition to keep big fish "in the fold."
+
 
 ---
 

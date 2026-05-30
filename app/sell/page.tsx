@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+
 import Link from "next/link";
 import type { BuybackItem, ItemCategory, SellerContact } from "@/lib/types";
 
@@ -22,6 +23,24 @@ function blankRow(): Row {
   };
 }
 
+function rowFromItem(item: BuybackItem): Row {
+  return {
+    _key: Math.random().toString(36).slice(2),
+    description: item.description ?? "",
+    quantity: item.quantity && item.quantity > 0 ? item.quantity : 1,
+    category: item.category ?? "Raw",
+    gradingService: item.gradingService ?? "",
+    certNumber: item.certNumber ?? "",
+    year: item.year,
+    denomination: item.denomination,
+    grade: item.grade ?? "",
+    cac: item.cac,
+    ...((item as any).dealerAsk != null ? { dealerAsk: (item as any).dealerAsk } : {}),
+    ...((item as any).faceValue != null ? { faceValue: (item as any).faceValue } : {}),
+  } as Row;
+}
+
+
 export default function SellPage() {
   const [contact, setContact] = useState<SellerContact>({
     name: "",
@@ -34,9 +53,44 @@ export default function SellPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<null | { ref: string; message: string }>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+
+  async function handleFile(file: File | null | undefined) {
+    if (!file) return;
+    setError(null);
+    setUploadMsg(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/parse-spreadsheet", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not read that file.");
+
+      const parsed: BuybackItem[] = Array.isArray(data.items) ? data.items : [];
+      if (!parsed.length) throw new Error("No coins found in that file.");
+
+      const newRows = parsed.map(rowFromItem);
+      // Replace the empty starter row; otherwise append to what's there.
+      setRows((rs) => {
+        const meaningful = rs.filter((r) => r.description.trim());
+        return meaningful.length ? [...meaningful, ...newRows] : newRows;
+      });
+      setUploadMsg(data.summary ?? `Imported ${newRows.length} coins. Review below.`);
+    } catch (e: any) {
+      setError(e?.message ?? "Upload failed.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   function updateRow(key: string, patch: Partial<Row>) {
     setRows((rs) => rs.map((r) => (r._key === key ? { ...r, ...patch } : r)));
   }
+
   function addRow() {
     setRows((rs) => [...rs, blankRow()]);
   }
@@ -143,6 +197,48 @@ export default function SellPage() {
         </div>
       </section>
 
+      {/* Upload a spreadsheet */}
+      <section className="card mb-6 p-5">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Have a list already?
+        </h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Upload your spreadsheet — CSV or Excel, with your columns in any order or
+          naming. We'll read it, sort out the columns, and fill in your coins below
+          for you to review.
+        </p>
+
+        <label
+          htmlFor="sheet-upload"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleFile(e.dataTransfer.files?.[0]);
+          }}
+          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
+        >
+          <span className="text-sm font-medium text-ink">
+            {uploading ? "Reading your file…" : "Click to upload or drag a file here"}
+          </span>
+          <span className="mt-1 text-xs text-slate-400">.csv, .xlsx, or .xls — up to 8 MB</span>
+          <input
+            id="sheet-upload"
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+        </label>
+
+        {uploadMsg && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {uploadMsg}
+          </p>
+        )}
+      </section>
+
       {/* Items */}
       <section className="card mb-6 p-5">
         <div className="mb-4 flex items-center justify-between">
@@ -153,6 +249,7 @@ export default function SellPage() {
             + Add coin
           </button>
         </div>
+
 
         <div className="space-y-4">
           {rows.map((row, i) => (
