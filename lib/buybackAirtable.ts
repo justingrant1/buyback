@@ -1,0 +1,299 @@
+/**
+ * Airtable data-access layer for the buyback portal.
+ *
+ * Talks to the dedicated "Witter Coin — Buybacks" base via the REST API
+ * (token auth). Three tables:
+ *   - BB Customers       (env.AIRTABLE_CUSTOMERS_TABLE)
+ *   - BB Buybacks        (env.AIRTABLE_BUYBACKS_TABLE)
+ *   - BB Buyback Items   (env.AIRTABLE_ITEMS_TABLE)
+ *
+ * We use fetch directly (rather than the airtable npm client) so the same code
+ * runs in Edge/Node route handlers without extra config.
+ */
+
+import { env } from "@/lib/env";
+import type {
+  BuybackItem,
+  BuybackRecord,
+  BuybackSource,
+  BuybackStatus,
+  SellerContact,
+} from "@/lib/types";
+
+const API = "https://api.airtable.com/v0";
+
+interface AirtableRecord<T = Record<string, unknown>> {
+  id: string;
+  createdTime: string;
+  fields: T;
+}
+
+async function at<T>(
+  table: string,
+  init: RequestInit & { query?: Record<string, string> } = {},
+): Promise<T> {
+  const url = new URL(`${API}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(table)}`);
+  if (init.query) {
+    for (const [k, v] of Object.entries(init.query)) {
+      if (v != null && v !== "") url.searchParams.set(k, v);
+    }
+  }
+  const res = await fetch(url.toString(), {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${env.AIRTABLE_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Airtable ${table} ${res.status}: ${body.slice(0, 400)}`);
+  }
+  return (await res.json()) as T;
+}
+
+function atById<T>(table: string, id: string, init: RequestInit = {}): Promise<T> {
+  return fetch(`${API}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(table)}/${id}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${env.AIRTABLE_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+    cache: "no-store",
+  }).then(async (res) => {
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Airtable ${table}/${id} ${res.status}: ${body.slice(0, 400)}`);
+    }
+    return (await res.json()) as T;
+  });
+}
+
+// ---------- Customers ----------
+
+/** Find a customer by email (case-insensitive), or create one. Returns record id. */
+export async function upsertCustomer(contact: SellerContact): Promise<string> {
+  const email = contact.email.trim().toLowerCase();
+  const formula = `LOWER({Email}) = "${email.replace(/"/g, '\\"')}"`;
+  const found = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_CUSTOMERS_TABLE, {
+    method: "GET",
+    query: { filterByFormula: formula, maxRecords: "1" },
+  });
+  if (found.records.length) return found.records[0].id;
+
+  const created = await at<{ id: string }>(env.AIRTABLE_CUSTOMERS_TABLE, {
+    method: "POST",
+    body: JSON.stringify({
+      fields: {
+        Name: contact.name,
+        Email: contact.email,
+        Phone: contact.phone ?? "",
+        "First Buyback": today(),
+      },
+    }),
+  });
+  return created.id;
+}
+
+/** Has this email sold to us before (more than zero prior buybacks)? */
+export async function isRepeatCustomer(email: string): Promise<boolean> {
+  const e = email.trim().toLowerCase();
+  const res = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_BUYBACKS_TABLE, {
+    method: "GET",
+    query: {
+      filterByFormula: `LOWER({Customer Email}) = "${e.replace(/"/g, '\\"')}"`,
+      maxRecords: "2",
+    },
+  });
+  return res.records.length > 0;
+}
+
+// ---------- Buybacks ----------
+
+export interface CreateBuybackInput {
+  ref: string;
+  contact: SellerContact;
+  customerId?: string;
+  status: BuybackStatus;
+  vip: boolean;
+  itemCount: number;
+  estimatedValue: number;
+  avgCoinValue: number;
+  approvalToken: string;
+  source: BuybackSource;
+  notes?: string;
+}
+
+export async function createBuyback(input: CreateBuybackInput): Promise<string> {
+  const fields: Record<string, unknown> = {
+    Ref: input.ref,
+    "Customer Name": input.contact.name,
+    "Customer Email": input.contact.email,
+    Status: input.status,
+    VIP: input.vip,
+    "Date Submitted": new Date().toISOString(),
+    "Item Count": input.itemCount,
+    "Estimated Value": input.estimatedValue,
+    "Avg Coin Value": input.avgCoinValue,
+    "Approval Token": input.approvalToken,
+    Source: input.source,
+    Notes: input.notes ?? "",
+  };
+  if (input.customerId) fields.Customer = [input.customerId];
+  const created = await at<{ id: string }>(env.AIRTABLE_BUYBACKS_TABLE, {
+    method: "POST",
+    body: JSON.stringify({ fields, typecast: true }),
+  });
+  return created.id;
+}
+
+export async function addItems(buybackId: string, items: BuybackItem[]): Promise<void> {
+  // Airtable allows max 10 records per create call — chunk it.
+  const chunks = chunk(items, 10);
+  for (const group of chunks) {
+    await at(env.AIRTABLE_ITEMS_TABLE, {
+      method: "POST",
+      body: JSON.stringify({
+        typecast: true,
+        records: group.map((it) => ({
+          fields: {
+            Item: it.description?.slice(0, 200) || "Item",
+            Buyback: [buybackId],
+            Description: it.description ?? "",
+            Quantity: it.quantity ?? 1,
+            "Grading Service": it.gradingService ?? "",
+            "Cert Number": it.certNumber ?? "",
+            Year: it.year ?? "",
+            Denomination: it.denomination ?? "",
+            Grade: it.grade ?? "",
+            CAC: Boolean(it.cac),
+            "CDN Bid": it.cdnBid ?? null,
+            "CDN Ask": it.cdnAsk ?? null,
+            "Dealer Ask": it.dealerAsk ?? null,
+            Offer: it.offer ?? null,
+            Category: it.category ?? "Raw",
+            Notes: it.notes ?? "",
+          },
+        })),
+      }),
+    });
+  }
+}
+
+export async function updateBuyback(
+  id: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  await atById(env.AIRTABLE_BUYBACKS_TABLE, id, {
+    method: "PATCH",
+    body: JSON.stringify({ fields, typecast: true }),
+  });
+}
+
+export async function getBuyback(id: string): Promise<BuybackRecord | null> {
+  try {
+    const rec = await atById<AirtableRecord>(env.AIRTABLE_BUYBACKS_TABLE, id);
+    return mapBuyback(rec);
+  } catch {
+    return null;
+  }
+}
+
+/** Look up a buyback by its public approval token (for the customer offer page). */
+export async function getBuybackByToken(token: string): Promise<BuybackRecord | null> {
+  const res = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_BUYBACKS_TABLE, {
+    method: "GET",
+    query: {
+      filterByFormula: `{Approval Token} = "${token.replace(/"/g, '\\"')}"`,
+      maxRecords: "1",
+    },
+  });
+  if (!res.records.length) return null;
+  return mapBuyback(res.records[0]);
+}
+
+export async function listBuybacks(opts: { status?: BuybackStatus } = {}): Promise<BuybackRecord[]> {
+  const query: Record<string, string> = {
+    pageSize: "100",
+    "sort[0][field]": "Date Submitted",
+    "sort[0][direction]": "desc",
+  };
+  if (opts.status) query.filterByFormula = `{Status} = "${opts.status}"`;
+  const res = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_BUYBACKS_TABLE, {
+    method: "GET",
+    query,
+  });
+  return res.records.map(mapBuyback);
+}
+
+export async function listItems(buybackId: string): Promise<BuybackItem[]> {
+  const res = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_ITEMS_TABLE, {
+    method: "GET",
+    query: {
+      filterByFormula: `FIND("${buybackId}", ARRAYJOIN({Buyback})) > 0`,
+      pageSize: "100",
+    },
+  });
+  return res.records.map((r) => {
+    const f = r.fields as Record<string, any>;
+    return {
+      id: r.id,
+      description: f["Description"] ?? "",
+      quantity: f["Quantity"] ?? 1,
+      gradingService: f["Grading Service"] ?? "",
+      certNumber: f["Cert Number"] ?? "",
+      year: f["Year"] ?? "",
+      denomination: f["Denomination"] ?? "",
+      grade: f["Grade"] ?? "",
+      cac: Boolean(f["CAC"]),
+      cdnBid: f["CDN Bid"] ?? null,
+      cdnAsk: f["CDN Ask"] ?? null,
+      dealerAsk: f["Dealer Ask"] ?? null,
+      offer: f["Offer"] ?? null,
+      category: f["Category"] ?? "Raw",
+      notes: f["Notes"] ?? "",
+    } satisfies BuybackItem;
+  });
+}
+
+// ---------- mappers / utils ----------
+
+function mapBuyback(rec: AirtableRecord): BuybackRecord {
+  const f = rec.fields as Record<string, any>;
+  return {
+    id: rec.id,
+    ref: f["Ref"] ?? "",
+    customerName: f["Customer Name"] ?? "",
+    customerEmail: f["Customer Email"] ?? "",
+    status: (f["Status"] ?? "New") as BuybackStatus,
+    vip: Boolean(f["VIP"]),
+    dateSubmitted: f["Date Submitted"] ?? rec.createdTime,
+    dateReceived: f["Date Received"] ?? null,
+    itemCount: f["Item Count"] ?? 0,
+    estimatedValue: f["Estimated Value"] ?? 0,
+    offerAmount: f["Offer Amount"] ?? null,
+    marginPct: f["Margin %"] ?? null,
+    avgCoinValue: f["Avg Coin Value"] ?? null,
+    approvalToken: f["Approval Token"] ?? "",
+    offerSentAt: f["Offer Sent At"] ?? null,
+    approvedAt: f["Approved At"] ?? null,
+    trackingNumber: f["Tracking Number"] ?? null,
+    labelUrl: f["Label URL"] ?? null,
+    carrier: f["Carrier"] ?? null,
+    source: (f["Source"] ?? "Web Form") as BuybackSource,
+    notes: f["Notes"] ?? "",
+  };
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
