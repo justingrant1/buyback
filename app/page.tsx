@@ -22,13 +22,15 @@ export default function HomePage() {
             Witter Coin · Coin Buyback Program
           </span>
           <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl">
-            Turn your coins into cash — at a fair price, fast.
+            Turn your coins into cash — the easy way.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-cyan-50/90">
-            Graded slabs, raw coins, junk silver, and gold. Send us your list and we&apos;ll
-            price it against live Greysheet (CDN) bid/ask, then email you an itemized offer
-            with a prepaid, fully-insured shipping label.
+            Graded slabs, raw coins, junk silver, and gold. Tell us what you have and
+            we&apos;ll email you a clear, itemized offer — backed by 30+ years of dealing.
+            Like the number? Ship free with our prepaid, insured label and get paid. No
+            pressure, no obligation.
           </p>
+
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/sell"
@@ -54,9 +56,10 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-6 px-6 py-8 text-center sm:grid-cols-4">
           {[
             { stat: "24 hr", label: "Typical offer turnaround" },
-            { stat: "Live CDN", label: "Greysheet bid/ask pricing" },
+            { stat: "30+ yrs", label: "Trusted coin dealer" },
             { stat: "$0", label: "Cost to ship — we pay" },
             { stat: "Insured", label: "FedEx 2-day on high value" },
+
           ].map((i) => (
             <div key={i.label}>
               <div className="text-2xl font-bold text-brand">{i.stat}</div>
@@ -81,18 +84,19 @@ export default function HomePage() {
             {
               n: "1",
               title: "Submit your coins",
-              body: "Enter your coins — graded certs, raw pieces, silver, or gold. Upload photos or paste your itemized list.",
+              body: "Snap a photo of a graded slab, upload your list, or type it in — graded certs, raw coins, silver, or gold. Takes just a few minutes.",
             },
             {
               n: "2",
-              title: "Get a transparent offer",
-              body: "We price every item against live Greysheet (CDN) bid/ask and email you an itemized offer to review.",
+              title: "Get your offer",
+              body: "Our experts review every item and email you a clear, itemized offer — no haggling, no surprises. You decide if it's right for you.",
             },
             {
               n: "3",
               title: "Ship free & get paid",
-              body: "Approve with one click. We send a prepaid, insured label — once it arrives and clears, you get paid.",
+              body: "Like the offer? Approve with one click. We send a prepaid, insured label — once it arrives, you get paid fast.",
             },
+
           ].map((s) => (
             <div key={s.n} className="card p-7">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brand/10 text-lg font-bold text-brand">
