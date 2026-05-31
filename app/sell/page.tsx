@@ -280,88 +280,6 @@ export default function SellPage() {
         </div>
       </section>
 
-      {/* Snap a photo of a slab */}
-      <section className="card mb-6 p-5">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Have a graded slab? Snap a photo
-        </h2>
-        <p className="mb-4 text-sm text-slate-600">
-          Take a clear, straight-on photo of the label (up to 2 slabs, one per photo).
-          We'll read the grading service, cert number, year, and grade and fill in the
-          coin below for you to review.
-        </p>
-
-        <label
-          htmlFor="slab-photo"
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
-        >
-          <span className="text-sm font-medium text-ink">
-            {scanning ? "Reading your slab…" : "Tap to take or choose a photo"}
-          </span>
-          <span className="mt-1 text-xs text-slate-400">JPG or PNG — up to 2 slabs</span>
-          <input
-            id="slab-photo"
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            className="hidden"
-            disabled={scanning}
-            onChange={(e) => handlePhotos(e.target.files)}
-          />
-        </label>
-
-        {scanMsg && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            {scanMsg}
-          </p>
-        )}
-      </section>
-
-      {/* Upload a spreadsheet */}
-      <section className="card mb-6 p-5">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Have a list already?
-        </h2>
-
-        <p className="mb-4 text-sm text-slate-600">
-          Upload your spreadsheet — CSV or Excel, with your columns in any order or
-          naming. We'll read it, sort out the columns, and fill in your coins below
-          for you to review.
-        </p>
-
-        <label
-          htmlFor="sheet-upload"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            handleFile(e.dataTransfer.files?.[0]);
-          }}
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
-        >
-          <span className="text-sm font-medium text-ink">
-            {uploading ? "Reading your file…" : "Click to upload or drag a file here"}
-          </span>
-          <span className="mt-1 text-xs text-slate-400">.csv, .xlsx, or .xls — up to 8 MB</span>
-          <input
-            id="sheet-upload"
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-        </label>
-
-        {uploadMsg && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            {uploadMsg}
-          </p>
-        )}
-      </section>
-
       {/* Items */}
       <section className="card mb-6 p-5">
         <div className="mb-4 flex items-center justify-between">
@@ -508,8 +426,92 @@ export default function SellPage() {
         </div>
       </section>
 
+      {/* Snap a photo of a slab */}
+      <section className="card mb-6 p-5">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Or add coins faster — snap a photo
+        </h2>
+
+        <p className="mb-4 text-sm text-slate-600">
+          Take a clear, straight-on photo of the label (up to 2 slabs, one per photo).
+          We'll read the grading service, cert number, year, and grade and fill in the
+          coin below for you to review.
+        </p>
+
+        <label
+          htmlFor="slab-photo"
+          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
+        >
+          <span className="text-sm font-medium text-ink">
+            {scanning ? "Reading your slab…" : "Tap to take or choose a photo"}
+          </span>
+          <span className="mt-1 text-xs text-slate-400">JPG or PNG — up to 2 slabs</span>
+          <input
+            id="slab-photo"
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            className="hidden"
+            disabled={scanning}
+            onChange={(e) => handlePhotos(e.target.files)}
+          />
+        </label>
+
+        {scanMsg && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {scanMsg}
+          </p>
+        )}
+      </section>
+
+      {/* Upload a spreadsheet */}
+      <section className="card mb-6 p-5">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Have a list already?
+        </h2>
+
+        <p className="mb-4 text-sm text-slate-600">
+          Upload your spreadsheet — CSV or Excel, with your columns in any order or
+          naming. We'll read it, sort out the columns, and fill in your coins below
+          for you to review.
+        </p>
+
+        <label
+          htmlFor="sheet-upload"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleFile(e.dataTransfer.files?.[0]);
+          }}
+          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
+        >
+          <span className="text-sm font-medium text-ink">
+            {uploading ? "Reading your file…" : "Click to upload or drag a file here"}
+          </span>
+          <span className="mt-1 text-xs text-slate-400">.csv, .xlsx, or .xls — up to 8 MB</span>
+          <input
+            id="sheet-upload"
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+        </label>
+
+        {uploadMsg && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {uploadMsg}
+          </p>
+        )}
+      </section>
+
       <section className="card mb-6 p-5">
         <label className="label">Anything we should know? (optional)</label>
+
         <textarea
           className="input min-h-[80px]"
           value={notes}
