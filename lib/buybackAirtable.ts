@@ -280,14 +280,31 @@ export async function listBuybacks(opts: { status?: BuybackStatus } = {}): Promi
   return res.records.map(mapBuyback);
 }
 
-export async function listItems(buybackId: string): Promise<BuybackItem[]> {
+/**
+ * Fetch the line items for a buyback.
+ *
+ * The Items table's `Buyback` field is a *linked record* field. ARRAYJOIN on a
+ * linked field yields the linked records' PRIMARY field values (the buyback
+ * `Ref`, e.g. "WB-PCQN9") — NOT their record IDs. So we match on the Ref, with
+ * a fallback to the record-id match for safety.
+ */
+export async function listItems(
+  buybackId: string,
+  ref?: string,
+): Promise<BuybackItem[]> {
+  const needles: string[] = [];
+  if (ref) needles.push(`FIND("${ref.replace(/"/g, '\\"')}", ARRAYJOIN({Buyback})) > 0`);
+  needles.push(`FIND("${buybackId}", ARRAYJOIN({Buyback})) > 0`);
+  const formula = needles.length > 1 ? `OR(${needles.join(",")})` : needles[0];
+
   const res = await at<{ records: AirtableRecord[] }>(env.AIRTABLE_ITEMS_TABLE, {
     method: "GET",
     query: {
-      filterByFormula: `FIND("${buybackId}", ARRAYJOIN({Buyback})) > 0`,
+      filterByFormula: formula,
       pageSize: "100",
     },
   });
+
   return res.records.map((r) => {
     const f = r.fields as Record<string, any>;
     return {

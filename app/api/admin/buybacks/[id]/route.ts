@@ -24,8 +24,9 @@ export async function GET(
 ) {
   const buyback = await getBuyback(params.id);
   if (!buyback) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const items = await listItems(params.id);
+  const items = await listItems(params.id, buyback.ref);
   return NextResponse.json({ buyback, items });
+
 }
 
 interface PatchBody {
