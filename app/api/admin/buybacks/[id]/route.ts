@@ -11,9 +11,11 @@ import {
   getBuyback,
   listItems,
   updateBuyback,
+  updateItemOffers,
 } from "@/lib/buybackAirtable";
-import { batchMargin } from "@/lib/pricing";
+import { batchMargin, round2 } from "@/lib/pricing";
 import type { BuybackStatus } from "@/lib/types";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,9 +34,16 @@ export async function GET(
 interface PatchBody {
   status?: BuybackStatus;
   offerAmount?: number;
+  /**
+   * Per-coin offers, keyed by the line-item record id. When present, the batch
+   * Offer Amount is recomputed from the sum of these line offers (the explicit
+   * offerAmount, if any, is ignored).
+   */
+  itemOffers?: { id: string; offer: number | null }[];
   notes?: string;
   dateReceived?: string;
 }
+
 
 export async function PATCH(
   req: Request,
@@ -55,18 +64,42 @@ export async function PATCH(
   if (body.notes != null) fields.Notes = body.notes;
   if (body.dateReceived) fields["Date Received"] = body.dateReceived;
 
-  if (typeof body.offerAmount === "number") {
-    fields["Offer Amount"] = body.offerAmount;
+  // Per-coin offers win: persist each line and recompute the batch total from
+  // their sum so the customer-facing total always matches the breakdown.
+  let computedTotal: number | null = null;
+  if (Array.isArray(body.itemOffers) && body.itemOffers.length) {
+    const lines = body.itemOffers.map((o) => ({
+      id: o.id,
+      offer: o.offer == null ? null : round2(Number(o.offer)),
+    }));
+    await updateItemOffers(lines);
+    computedTotal = round2(
+      lines.reduce((sum, o) => sum + (o.offer ?? 0), 0),
+    );
+  }
+
+  const offerAmount =
+    computedTotal != null
+      ? computedTotal
+      : typeof body.offerAmount === "number"
+        ? body.offerAmount
+        : null;
+
+  if (offerAmount != null) {
+    fields["Offer Amount"] = offerAmount;
     fields["Margin %"] = Number(
-      (batchMargin(existing.estimatedValue, body.offerAmount) * 100).toFixed(2),
+      (batchMargin(existing.estimatedValue, offerAmount) * 100).toFixed(2),
     );
   }
 
   try {
-    await updateBuyback(params.id, fields);
+    if (Object.keys(fields).length) await updateBuyback(params.id, fields);
     const updated = await getBuyback(params.id);
-    return NextResponse.json({ buyback: updated });
+    const items = await listItems(params.id, updated?.ref);
+    return NextResponse.json({ buyback: updated, items });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Update failed" }, { status: 500 });
   }
 }
+
+

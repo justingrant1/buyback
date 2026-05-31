@@ -13,7 +13,8 @@ export default function BuybackDetail() {
   const [buyback, setBuyback] = useState<BuybackRecord | null>(null);
   const [items, setItems] = useState<BuybackItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [offer, setOffer] = useState<string>("");
+  // Per-coin offer drafts, keyed by line-item id (string for the input).
+  const [itemOffers, setItemOffers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -21,8 +22,13 @@ export default function BuybackDetail() {
     const res = await fetch(`/api/admin/buybacks/${id}`);
     const d = await res.json();
     setBuyback(d.buyback);
-    setItems(d.items ?? []);
-    if (d.buyback?.offerAmount != null) setOffer(String(d.buyback.offerAmount));
+    const its: BuybackItem[] = d.items ?? [];
+    setItems(its);
+    const drafts: Record<string, string> = {};
+    for (const it of its) {
+      if (it.id) drafts[it.id] = it.offer == null ? "" : String(it.offer);
+    }
+    setItemOffers(drafts);
     setLoading(false);
   }
   useEffect(() => {
@@ -30,29 +36,48 @@ export default function BuybackDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const suggested = useMemo(
-    () => items.reduce((s, it) => s + (it.offer ?? 0) * (it.quantity ?? 1), 0),
-    [items],
+  // Total offer = sum of the per-coin offer drafts (the offer is the line total
+  // for that coin, including its quantity — staff enters the full line amount).
+  const total = useMemo(
+    () =>
+      items.reduce((s, it) => {
+        const raw = it.id ? itemOffers[it.id] : "";
+        return s + (Number(raw) || 0);
+      }, 0),
+    [items, itemOffers],
   );
   const refValue = useMemo(
     () => items.reduce((s, it) => s + (it.cdnBid ?? 0) * (it.quantity ?? 1), 0),
     [items],
   );
-  const offerNum = Number(offer) || 0;
-  const margin = refValue > 0 ? ((refValue - offerNum) / refValue) * 100 : 0;
+  const margin = refValue > 0 ? ((refValue - total) / refValue) * 100 : 0;
+
+  function setLineOffer(itemId: string, value: string) {
+    setItemOffers((prev) => ({ ...prev, [itemId]: value }));
+  }
 
   async function saveOffer() {
     setBusy("save");
     setMsg(null);
+    const payload = items
+      .filter((it) => it.id)
+      .map((it) => {
+        const raw = itemOffers[it.id!];
+        return {
+          id: it.id!,
+          offer: raw === "" || raw == null ? null : Number(raw),
+        };
+      });
     await fetch(`/api/admin/buybacks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offerAmount: offerNum }),
+      body: JSON.stringify({ itemOffers: payload }),
     });
     await load();
     setBusy(null);
-    setMsg("Offer saved.");
+    setMsg("Per-coin offers saved.");
   }
+
 
   async function sendOffer() {
     setBusy("send");
@@ -138,12 +163,12 @@ export default function BuybackDetail() {
                 <th className="px-3 py-2 text-center">Qty</th>
                 <th className="px-3 py-2 text-right">CDN Bid</th>
                 <th className="px-3 py-2 text-right">CDN Ask</th>
-                <th className="px-3 py-2 text-right">Offer</th>
+                <th className="px-3 py-2 text-right">Offer ($)</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it, i) => (
-                <tr key={i} className="border-t border-slate-100">
+                <tr key={it.id ?? i} className="border-t border-slate-100">
                   <td className="px-3 py-2">
                     <div className="font-medium">{it.description}</div>
                     {(it.gradingService || it.certNumber) && (
@@ -155,12 +180,41 @@ export default function BuybackDetail() {
                   <td className="px-3 py-2 text-center">{it.quantity}</td>
                   <td className="px-3 py-2 text-right">{money(it.cdnBid)}</td>
                   <td className="px-3 py-2 text-right">{money(it.cdnAsk)}</td>
-                  <td className="px-3 py-2 text-right font-medium">{money(it.offer)}</td>
+                  <td className="px-3 py-2 text-right">
+                    {it.id ? (
+                      <input
+                        className="input w-24 py-1 text-right"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={itemOffers[it.id] ?? ""}
+                        onChange={(e) => setLineOffer(it.id!, e.target.value)}
+                        placeholder={String(
+                          Math.round((it.cdnBid ?? 0) * (it.quantity ?? 1)),
+                        )}
+                      />
+                    ) : (
+                      money(it.offer)
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
+                <td className="px-3 py-2" colSpan={4}>
+                  Total offer
+                </td>
+                <td className="px-3 py-2 text-right text-brand">{money(total)}</td>
+              </tr>
+            </tfoot>
           </table>
+          <p className="px-3 py-2 text-xs text-slate-400">
+            Enter an offer for each coin. The total below updates automatically and
+            is what the customer sees.
+          </p>
         </section>
+
 
         {/* Offer panel */}
         <aside className="card h-fit p-5">
@@ -169,29 +223,26 @@ export default function BuybackDetail() {
           </h2>
           <dl className="mt-3 space-y-1 text-sm">
             <Row label="Reference value (CDN bid)" value={money(refValue)} />
-            <Row label="Suggested offer" value={money(suggested)} />
+            <Row label="Total offer (per-coin)" value={money(total)} />
           </dl>
 
-          <label className="label mt-4">Your offer to customer ($)</label>
-          <input
-            className="input"
-            type="number"
-            value={offer}
-            onChange={(e) => setOffer(e.target.value)}
-            placeholder={String(Math.round(suggested))}
-          />
+          <p className="mt-3 text-sm text-slate-500">
+            Set each coin&apos;s offer in the table on the left. The total is the
+            sum of those line offers.
+          </p>
           <p className="mt-1 text-xs text-slate-500">
             Margin: <strong>{margin.toFixed(1)}%</strong>
           </p>
 
           <div className="mt-4 space-y-2">
             <button onClick={saveOffer} disabled={busy != null} className="btn-ghost w-full">
-              {busy === "save" ? "Saving…" : "Save offer"}
+              {busy === "save" ? "Saving…" : "Save per-coin offers"}
             </button>
-            <button onClick={sendOffer} disabled={busy != null || offerNum <= 0} className="btn-primary w-full">
+            <button onClick={sendOffer} disabled={busy != null || total <= 0} className="btn-primary w-full">
               {busy === "send" ? "Sending…" : "Send offer email"}
             </button>
           </div>
+
 
           <div className="mt-4 border-t border-slate-100 pt-4">
             <p className="label">Mark status</p>

@@ -130,7 +130,16 @@ export default function OfferPage() {
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-slate-300 font-semibold">
+              <td className="py-2" colSpan={3}>
+                Total offer
+              </td>
+              <td className="py-2 text-right text-brand">{money(offer.offerAmount)}</td>
+            </tr>
+          </tfoot>
         </table>
+
 
         {decided ? (
           <p className="mt-6 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">

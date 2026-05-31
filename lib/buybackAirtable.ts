@@ -244,6 +244,32 @@ export async function updateBuyback(
   });
 }
 
+/**
+ * Persist per-coin offer amounts on the Buyback Items table. Each entry maps a
+ * line-item record id to its (possibly null) offer. Airtable allows up to 10
+ * records per PATCH, so we chunk.
+ */
+export async function updateItemOffers(
+  offers: { id: string; offer: number | null }[],
+): Promise<void> {
+  const valid = offers.filter((o) => o.id);
+  if (!valid.length) return;
+  const chunks = chunk(valid, 10);
+  for (const group of chunks) {
+    await at(env.AIRTABLE_ITEMS_TABLE, {
+      method: "PATCH",
+      body: JSON.stringify({
+        typecast: true,
+        records: group.map((o) => ({
+          id: o.id,
+          fields: { Offer: o.offer ?? null },
+        })),
+      }),
+    });
+  }
+}
+
+
 export async function getBuyback(id: string): Promise<BuybackRecord | null> {
   try {
     const rec = await atById<AirtableRecord>(env.AIRTABLE_BUYBACKS_TABLE, id);

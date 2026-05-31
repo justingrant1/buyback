@@ -80,6 +80,22 @@ export async function sendOfferEmail(
     )
     .join("");
 
+  const totalRow = `<tr>
+        <td colspan="3" style="padding:8px 10px;border-top:2px solid #cbd5e1;text-align:right;font-weight:bold">Total offer</td>
+        <td style="padding:8px 10px;border-top:2px solid #cbd5e1;text-align:right;font-weight:bold;color:#0e7490">${money(buyback.offerAmount)}</td>
+      </tr>`;
+
+  // Plain-text itemized breakdown (for the text/plain part of the email).
+  const textRows = items
+    .map(
+      (it) =>
+        `- ${it.description}${it.quantity > 1 ? ` (x${it.quantity})` : ""}${
+          it.grade ? `, ${it.grade}` : ""
+        }: ${money(it.offer)}`,
+    )
+    .join("\n");
+
+
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">
     <h2 style="color:#155e75">Witter Coin — Your Buyback Offer</h2>
@@ -96,8 +112,9 @@ export async function sendOfferEmail(
           <th style="padding:8px 10px;text-align:right">Offer</th>
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows}${totalRow}</tbody>
     </table>
+
     <p style="margin:24px 0">
       <a href="${url}"
          style="background:#0e7490;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold">
@@ -112,7 +129,10 @@ export async function sendOfferEmail(
   const text = `Witter Coin — Your Buyback Offer
 Hi ${buyback.customerName || "there"},
 
-Our total bid for your coins is ${money(buyback.offerAmount)}.
+Here is our per-coin offer breakdown:
+${textRows}
+
+Total offer: ${money(buyback.offerAmount)}
 
 Review & approve here: ${url}
 
@@ -120,6 +140,7 @@ Reference: ${buyback.ref}
 
 Best,
 Marley — Witter Coin Buybacks`;
+
 
   return send({
     to: buyback.customerEmail,
