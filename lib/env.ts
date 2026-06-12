@@ -93,6 +93,11 @@ export const env = {
   // ---- App ----
   // Public base URL, used to build approve-offer links in emails.
   APP_BASE_URL: optional("APP_BASE_URL", "http://localhost:3000"),
+  // Google Maps JavaScript API key for address autocomplete on the offer page.
+  // Browser-exposed via NEXT_PUBLIC_*, so use a key that is restricted to the
+  // Places JS API + your domain(s).
+  NEXT_PUBLIC_GOOGLE_MAPS_KEY: optional("NEXT_PUBLIC_GOOGLE_MAPS_KEY", ""),
+
   get APP_PASSWORD() {
     return required("APP_PASSWORD");
   },

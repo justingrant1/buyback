@@ -1,7 +1,72 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+
+const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+
+/**
+ * Loads the Google Maps JS Places library exactly once, even if multiple
+ * components mount. Resolves the global `google` object so callers can use
+ * `new google.maps.places.Autocomplete(...)`.
+ */
+function loadGoogleMaps(): Promise<any> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  if (!GOOGLE_MAPS_KEY) return Promise.resolve(null);
+  const w = window as any;
+  if (w.google?.maps?.places) return Promise.resolve(w.google);
+
+  const existing = document.getElementById("gmaps-places") as HTMLScriptElement | null;
+  if (existing) {
+    return new Promise((resolve) => {
+      existing.addEventListener("load", () => resolve(w.google ?? null));
+    });
+  }
+
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.id = "gmaps-places";
+    script.async = true;
+    script.defer = true;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+      GOOGLE_MAPS_KEY,
+    )}&libraries=places&v=weekly`;
+    script.onload = () => resolve(w.google ?? null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * Splits a google.maps.places.PlaceResult into our { street, city, state, zip }
+ * shape. Handles US addresses (the only ones Shippo will route via FedEx anyway).
+ */
+function placeToAddress(place: any): {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+} {
+  const comps: any[] = place?.address_components ?? [];
+  const get = (type: string, short = false) => {
+    const c = comps.find((x) => x.types?.includes(type));
+    return c ? (short ? c.short_name : c.long_name) : "";
+  };
+  const streetNumber = get("street_number");
+  const route = get("route");
+  return {
+    street: [streetNumber, route].filter(Boolean).join(" "),
+    city:
+      get("locality") ||
+      get("sublocality") ||
+      get("postal_town") ||
+      get("administrative_area_level_2"),
+    state: get("administrative_area_level_1", true),
+    zip: get("postal_code"),
+  };
+}
+
+
 
 interface OfferItem {
   description: string;
@@ -29,6 +94,9 @@ export default function OfferPage() {
   const [ship, setShip] = useState({ street: "", city: "", state: "", zip: "" });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<null | { status: string; labelUrl?: string }>(null);
+  const streetInputRef = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<any>(null);
+
 
   useEffect(() => {
     fetch(`/api/offer/${token}`)
@@ -40,6 +108,38 @@ export default function OfferPage() {
       .catch(() => setError("Could not load this offer."))
       .finally(() => setLoading(false));
   }, [token]);
+
+  // Attach Google Places autocomplete to the street input once the offer has
+  // loaded (and only if we have a key configured). When the customer picks a
+  // suggestion, all four address fields are auto-populated.
+  useEffect(() => {
+    if (!offer) return;
+    if (!streetInputRef.current) return;
+    if (autocompleteRef.current) return; // already wired
+
+    let cancelled = false;
+    loadGoogleMaps().then((google) => {
+      if (cancelled || !google || !streetInputRef.current) return;
+      const ac = new google.maps.places.Autocomplete(streetInputRef.current, {
+        types: ["address"],
+        componentRestrictions: { country: ["us"] },
+        fields: ["address_components", "formatted_address"],
+      });
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace();
+        const addr = placeToAddress(place);
+        if (addr.street || addr.city || addr.state || addr.zip) {
+          setShip(addr);
+        }
+      });
+      autocompleteRef.current = ac;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [offer]);
+
 
   async function decide(decision: "accept" | "decline") {
     setBusy(true);
@@ -151,13 +251,21 @@ export default function OfferPage() {
               <h2 className="mb-2 text-sm font-semibold text-slate-700">
                 Your shipping address (for the prepaid label)
               </h2>
+              <p className="mb-3 text-xs text-slate-500">
+                {GOOGLE_MAPS_KEY
+                  ? "Start typing and pick your address — we'll fill in the rest."
+                  : "Enter your address below."}
+              </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <input
+                  ref={streetInputRef}
                   className="input sm:col-span-2"
-                  placeholder="Street address"
+                  placeholder={GOOGLE_MAPS_KEY ? "Start typing your address…" : "Street address"}
+                  autoComplete="off"
                   value={ship.street}
                   onChange={(e) => setShip({ ...ship, street: e.target.value })}
                 />
+
                 <input
                   className="input"
                   placeholder="City"

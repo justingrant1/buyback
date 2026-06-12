@@ -87,19 +87,16 @@ export async function POST(
     labelUrl = label.labelUrl;
     tracking = label.trackingNumber;
     carrier = label.carrier;
+    // Note: we intentionally do not persist the customer's ship-from address
+    // back to Airtable — Shippo has it on the label and the table doesn't have
+    // those columns. If we ever want it stored, add Ship Street/City/State/Zip
+    // fields to the Buybacks base and re-include them here.
     await updateBuyback(buyback.id, {
       "Label URL": labelUrl,
       "Tracking Number": tracking,
       Carrier: carrier,
-      ...(body.ship
-        ? {
-            "Ship Street": body.ship.street ?? "",
-            "Ship City": body.ship.city ?? "",
-            "Ship State": body.ship.state ?? "",
-            "Ship Zip": body.ship.zip ?? "",
-          }
-        : {}),
     });
+
   }
 
   await sendLabelEmail(
