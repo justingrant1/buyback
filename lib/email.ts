@@ -48,7 +48,16 @@ async function send(opts: {
           { type: "text/plain", value: opts.text },
           { type: "text/html", value: opts.html },
         ],
+        // Disable SendGrid's click/open tracking so links stay as the real
+        // URLs we generate (no urlNNNN.wittercoin.com wrappers, no DNS
+        // setup required for a Link Branding subdomain).
+        tracking_settings: {
+          click_tracking: { enable: false, enable_text: false },
+          open_tracking: { enable: false },
+          subscription_tracking: { enable: false },
+        },
       }),
+
     });
     if (!res.ok && res.status !== 202) {
       const t = await res.text().catch(() => "");
