@@ -32,6 +32,13 @@ import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Shippo's combined POST /shipments/ + POST /transactions/ round-trip can
+// occasionally exceed the default 10s hobby-plan limit on cold starts,
+// causing Vercel's edge to return a generic 502 with an HTML body that
+// hides our nice JSON error. Bumping to 60s gives Shippo room to respond.
+// (On hobby plans Vercel silently caps at 10s; on Pro/Enterprise this
+// actually takes effect.)
+export const maxDuration = 60;
 
 interface Body {
   decision?: "accept" | "decline";

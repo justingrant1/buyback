@@ -260,8 +260,34 @@ export default function OfferPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, ship }),
       });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error ?? "Something went wrong");
+      // Read the response defensively: if the server (our route) returns
+      // JSON we get the real error; if Vercel's gateway returns HTML
+      // (502/504), res.json() throws — fall back to showing the status code
+      // so the customer at least sees something more useful than nothing.
+      let d: any = null;
+      let raw = "";
+      try {
+        raw = await res.text();
+        d = raw ? JSON.parse(raw) : null;
+      } catch {
+        d = null;
+      }
+      if (!res.ok) {
+        if (d?.error) {
+          throw new Error(d.error);
+        }
+        // Most common cause when this branch fires is Vercel's edge returning
+        // 502/504 because our serverless function exceeded its 10s timeout
+        // (Shippo's `/transactions/` call can do this on cold starts +
+        // unverified addresses). Surface that explicitly so customer support
+        // knows what to do.
+        const hint =
+          res.status === 502 || res.status === 504
+            ? " The shipping-label service took too long to respond. Please try again in a moment — if it keeps happening, contact buyback@wittercoin.com and we'll send your label manually."
+            : "";
+        throw new Error(`Request failed (${res.status}).${hint}`);
+      }
+      if (!d) throw new Error("Unexpected empty response from the server.");
       setResult({ status: d.status, labelUrl: d.labelUrl });
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");
