@@ -26,7 +26,24 @@ export async function POST(
     );
   }
 
+  // Hard-fail with a clear message if the buyback row has no usable email.
+  // Without this, SendGrid returns a confusing "Does not contain a valid
+  // address" 400 — staff have no way to know the underlying problem.
+  const email = (buyback.customerEmail ?? "").trim();
+  const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!looksLikeEmail) {
+    return NextResponse.json(
+      {
+        error:
+          "This buyback has no valid customer email on file. " +
+          "Open the row in Airtable and set the `Customer Email` field, then try again.",
+      },
+      { status: 400 },
+    );
+  }
+
   const items = await listItems(params.id);
+
   const result = await sendOfferEmail(buyback, items);
   if (!result.ok) {
     return NextResponse.json({ error: result.error ?? "Email failed" }, { status: 502 });

@@ -355,13 +355,30 @@ export async function listItems(
 
 // ---------- mappers / utils ----------
 
+/**
+ * Airtable returns array values for lookup / rollup / multi-select fields. The
+ * Buybacks table's `Customer Name` and `Customer Email` may be plain strings
+ * (when they were written directly on createBuyback) OR arrays (when the base
+ * was configured to look those up from the linked Customer record). Normalize
+ * to a single string so the rest of the app can rely on `string`.
+ */
+function asString(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map(asString).filter(Boolean).join(", ");
+  if (typeof v === "object" && "email" in (v as any)) return String((v as any).email ?? "");
+  return "";
+}
+
 function mapBuyback(rec: AirtableRecord): BuybackRecord {
   const f = rec.fields as Record<string, any>;
   return {
     id: rec.id,
-    ref: f["Ref"] ?? "",
-    customerName: f["Customer Name"] ?? "",
-    customerEmail: f["Customer Email"] ?? "",
+    ref: asString(f["Ref"]),
+    customerName: asString(f["Customer Name"]),
+    customerEmail: asString(f["Customer Email"]).trim(),
+
     status: (f["Status"] ?? "New") as BuybackStatus,
     vip: Boolean(f["VIP"]),
     dateSubmitted: f["Date Submitted"] ?? rec.createdTime,
