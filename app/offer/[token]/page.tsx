@@ -146,7 +146,7 @@ export default function OfferPage() {
   const [offer, setOffer] = useState<OfferView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ship, setShip] = useState({ street: "", city: "", state: "", zip: "" });
+  const [ship, setShip] = useState({ street: "", city: "", state: "", zip: "", phone: "" });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<null | { status: string; labelUrl?: string }>(null);
   // Container the new <gmp-place-autocomplete> element mounts into. The
@@ -224,7 +224,8 @@ export default function OfferPage() {
           const data = typeof place.toJSON === "function" ? place.toJSON() : place;
           const addr = placeToAddress(data);
           if (addr.street || addr.city || addr.state || addr.zip) {
-            setShip(addr);
+            // Merge so we don't wipe a phone number the customer already typed.
+            setShip((prev) => ({ ...prev, ...addr }));
           }
         } catch (e) {
           console.warn("[offer] place select handler failed:", e);
@@ -447,6 +448,18 @@ export default function OfferPage() {
                     onChange={(e) => setShip({ ...ship, zip: e.target.value })}
                   />
                 </div>
+                {/* Phone number — required by FedEx on every shipment. Without
+                    this, the /transactions/ call fails with
+                    `shipment.address_from.phone must not be empty`. */}
+                <input
+                  className="input sm:col-span-2"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="Phone number (required by FedEx)"
+                  value={ship.phone}
+                  onChange={(e) => setShip({ ...ship, phone: e.target.value })}
+                />
               </div>
             </div>
 

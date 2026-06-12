@@ -47,6 +47,7 @@ interface Body {
     city?: string;
     state?: string;
     zip?: string;
+    phone?: string;
   };
 }
 
@@ -78,6 +79,7 @@ function checkCustomerAddress(s?: Body["ship"]): string | null {
     ["city", s.city],
     ["state", s.state],
     ["zip", s.zip],
+    ["phone", s.phone],
   ] as const;
   for (const [name, v] of fields) {
     if (!v || !v.trim()) return `Please fill in your ${name}.`;
@@ -87,6 +89,12 @@ function checkCustomerAddress(s?: Body["ship"]): string | null {
   }
   if ((s.state ?? "").trim().length !== 2) {
     return "State should be the 2-letter code (e.g. CA).";
+  }
+  // FedEx requires at least 10 digits on the ship-from phone or it rejects
+  // the transaction with `shipment.address_from.phone must not be empty`.
+  const digits = (s.phone ?? "").replace(/\D/g, "");
+  if (digits.length < 10) {
+    return "Please enter a valid 10-digit phone number (FedEx requires one).";
   }
   return null;
 }
@@ -153,6 +161,10 @@ export async function POST(
           state: body.ship?.state ?? "",
           zip: body.ship?.zip ?? "",
           country: "US",
+          // FedEx requires phone on address_from; we collected & validated it
+          // above. Pass the raw digits (Shippo accepts the formatted version
+          // too but digits-only avoids any weird parsing on FedEx's side).
+          phone: (body.ship?.phone ?? "").replace(/\D/g, ""),
         },
       });
 
