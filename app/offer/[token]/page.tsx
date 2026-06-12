@@ -148,7 +148,17 @@ export default function OfferPage() {
   const [error, setError] = useState<string | null>(null);
   const [ship, setShip] = useState({ street: "", city: "", state: "", zip: "", phone: "" });
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<null | { status: string; labelUrl?: string }>(null);
+  const [result, setResult] = useState<null | {
+    status: string;
+    labelUrl?: string;
+    selfShip?: boolean;
+    shipTo?: { name: string; street: string; city: string; state: string; zip: string };
+  }>(null);
+
+  // Offers below this dollar amount don't get a prepaid label — the customer
+  // ships at their own cost. Keep this constant in sync with
+  // PREPAID_LABEL_THRESHOLD_USD in lib/shippo.ts.
+  const PREPAID_LABEL_THRESHOLD_USD = 2000;
   // Container the new <gmp-place-autocomplete> element mounts into. The
   // element renders its own input internally — we just give it a slot in our
   // layout and read the selection event.
@@ -296,7 +306,12 @@ export default function OfferPage() {
       if (d.ok === false) {
         throw new Error(d.error ?? "Could not generate a shipping label.");
       }
-      setResult({ status: d.status, labelUrl: d.labelUrl });
+      setResult({
+        status: d.status,
+        labelUrl: d.labelUrl,
+        selfShip: d.selfShip,
+        shipTo: d.shipTo,
+      });
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");
     } finally {
@@ -318,6 +333,28 @@ export default function OfferPage() {
               <p className="mt-3 text-slate-600">
                 No problem — we've noted that you've passed on this offer. Reach out
                 anytime if you change your mind.
+              </p>
+            </>
+          ) : result.selfShip ? (
+            <>
+              <h1 className="text-2xl font-bold text-brand">You're all set! 🎉</h1>
+              <p className="mt-3 text-slate-600">
+                Please ship your coins to us at your own expense (USPS Priority Mail
+                with tracking works great). We've emailed you these instructions too.
+              </p>
+              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-left text-sm leading-6 text-slate-700">
+                <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                  Ship to
+                </div>
+                <div className="font-semibold">{result.shipTo?.name ?? "Witter Coin"}</div>
+                <div>{result.shipTo?.street ?? "2299 Lombard St"}</div>
+                <div>
+                  {result.shipTo?.city ?? "San Francisco"},{" "}
+                  {result.shipTo?.state ?? "CA"} {result.shipTo?.zip ?? "94123"}
+                </div>
+              </div>
+              <p className="mt-4 text-xs text-slate-500">
+                Please include reference <strong>{offer.ref}</strong> inside the package.
               </p>
             </>
           ) : (
@@ -389,6 +426,47 @@ export default function OfferPage() {
           <p className="mt-6 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">
             This offer has already been {offer.status.toLowerCase()}.
           </p>
+        ) : (offer.offerAmount ?? 0) < PREPAID_LABEL_THRESHOLD_USD ? (
+          // Self-ship path: don't collect an address. Show the drop-off
+          // address and accept/decline buttons.
+          <>
+            <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
+              <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+                If you accept, please ship your coins to:
+              </div>
+              <div className="font-semibold">Witter Coin</div>
+              <div>2299 Lombard St</div>
+              <div>San Francisco, CA 94123</div>
+              <p className="mt-3 text-xs text-slate-500">
+                Orders under $2,000 are mailed at the customer's expense (USPS
+                Priority Mail with tracking is a good low-cost option). We'll
+                email these instructions again once you accept.
+              </p>
+            </div>
+
+            {error && (
+              <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => decide("accept")}
+                disabled={busy}
+                className="btn-primary flex-1 py-3"
+              >
+                {busy ? "Processing…" : "Accept Offer"}
+              </button>
+              <button
+                onClick={() => decide("decline")}
+                disabled={busy}
+                className="btn-ghost"
+              >
+                Decline
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div className="mt-8">

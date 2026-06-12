@@ -26,8 +26,8 @@
 
 import { NextResponse } from "next/server";
 import { getBuybackByToken, updateBuyback } from "@/lib/buybackAirtable";
-import { createInboundLabel } from "@/lib/shippo";
-import { sendLabelEmail } from "@/lib/email";
+import { createInboundLabel, shipmentPlanForOffer } from "@/lib/shippo";
+import { sendLabelEmail, sendSelfShipEmail } from "@/lib/email";
 import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -126,6 +126,47 @@ export async function POST(
     }
 
     // ---- Accept path ----
+
+    // Branch on shipment plan based on offer amount:
+    //   <  $2,000 -> customer self-ships (no FedEx label, no address form)
+    //   $2k–$5k   -> FedEx 2 Day (prepaid label)
+    //   >= $5,000 -> FedEx Standard Overnight (prepaid label)
+    const plan = shipmentPlanForOffer(buyback.offerAmount ?? 0);
+
+    if (plan.kind === "self_ship") {
+      await updateBuyback(buyback.id, {
+        Status: "Approved",
+        "Approved At": new Date().toISOString(),
+      });
+
+      // Email drop-off instructions. Don't fail the whole request if the
+      // email send hiccups — staff can re-send manually.
+      try {
+        await sendSelfShipEmail(buyback);
+      } catch (e: any) {
+        console.error("[offer.approve] sendSelfShipEmail failed:", e?.message ?? e);
+      }
+
+      // Move to a status that signals "we're now waiting on the customer's
+      // package." Reusing "Label Sent" keeps the admin board's column logic
+      // unchanged — semantically it means "ball is in customer's court."
+      await updateBuyback(buyback.id, { Status: "Label Sent" });
+
+      return NextResponse.json({
+        ok: true,
+        status: "Label Sent",
+        selfShip: true,
+        shipTo: {
+          name: env.SHIP_TO_NAME || "Witter Coin",
+          street: env.SHIP_TO_STREET || "2299 Lombard St",
+          city: env.SHIP_TO_CITY || "San Francisco",
+          state: env.SHIP_TO_STATE || "CA",
+          zip: env.SHIP_TO_ZIP || "94123",
+        },
+      });
+    }
+
+    // ---- Prepaid label path ($2k+) ----
 
     // Pre-flight checks so we don't waste a Shippo API call when env or
     // the customer's address is obviously wrong.

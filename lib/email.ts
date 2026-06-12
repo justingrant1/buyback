@@ -160,6 +160,69 @@ Marley — Witter Coin Buybacks`;
   });
 }
 
+/**
+ * The "ship to us at your own cost" email — used for offers under the
+ * $2,000 prepaid-label threshold. No FedEx label is generated; the
+ * customer mails their coins to our SF address using the carrier of
+ * their choice.
+ */
+export async function sendSelfShipEmail(
+  buyback: BuybackRecord,
+): Promise<SendResult> {
+  // Pull the receiving address from env so the email always shows whatever
+  // is currently configured for shipments (single source of truth).
+  const addrName = env.SHIP_TO_NAME || "Witter Coin";
+  const addrStreet = env.SHIP_TO_STREET || "2299 Lombard St";
+  const addrCity = env.SHIP_TO_CITY || "San Francisco";
+  const addrState = env.SHIP_TO_STATE || "CA";
+  const addrZip = env.SHIP_TO_ZIP || "94123";
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">
+    <h2 style="color:#155e75">Thanks — please ship your coins to us</h2>
+    <p>Hi ${escapeHtml(buyback.customerName || "there")},</p>
+    <p>Thanks for accepting your offer! Because this order is under our $2,000 prepaid-label minimum,
+       please ship your coins to us at your own expense (USPS Priority Mail with tracking is a great
+       low-cost option).</p>
+    <p style="background:#f1f5f9;padding:16px;border-radius:8px;border:1px solid #e2e8f0;font-size:15px;line-height:1.6">
+      <strong>${escapeHtml(addrName)}</strong><br/>
+      ${escapeHtml(addrStreet)}<br/>
+      ${escapeHtml(addrCity)}, ${escapeHtml(addrState)} ${escapeHtml(addrZip)}
+    </p>
+    <p>Please include a note inside the package with your reference number
+       <strong>${escapeHtml(buyback.ref)}</strong> so we can match the shipment to your offer.</p>
+    <p style="color:#475569;font-size:13px">Once your coins arrive we'll verify them and finalize payment.
+       If you'd like, reply to this email with the tracking number once you've shipped.</p>
+    <p>Best,<br/>Marley<br/>Witter Coin Buybacks</p>
+  </div>`;
+
+  const text = `Thanks — please ship your coins to us
+
+Hi ${buyback.customerName || "there"},
+
+Because this order is under our $2,000 prepaid-label minimum, please ship your coins to us at your own expense (USPS Priority Mail with tracking is a great low-cost option).
+
+Ship to:
+${addrName}
+${addrStreet}
+${addrCity}, ${addrState} ${addrZip}
+
+Please include a note with your reference number: ${buyback.ref}
+
+Once your coins arrive we'll verify them and finalize payment. Reply with a tracking number when you've shipped.
+
+Best,
+Marley — Witter Coin Buybacks`;
+
+  return send({
+    to: buyback.customerEmail,
+    toName: buyback.customerName,
+    subject: `Ship your coins to Witter Coin — ${buyback.ref}`,
+    html,
+    text,
+  });
+}
+
 /** The prepaid label email sent after the customer approves. */
 export async function sendLabelEmail(
   buyback: BuybackRecord,

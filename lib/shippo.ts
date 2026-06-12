@@ -44,6 +44,30 @@ const SHIPPO_API = "https://api.goshippo.com";
 const OVERNIGHT_THRESHOLD_USD = 5000;
 
 /**
+ * Minimum offer amount that qualifies for a prepaid FedEx label. Anything
+ * below this is cheap enough that the customer ships at their own expense
+ * to our SF address — we email them instructions instead of buying a label.
+ */
+export const PREPAID_LABEL_THRESHOLD_USD = 2000;
+
+/**
+ * Single source of truth for which shipment treatment an offer gets.
+ * Used by both the approve route (to decide whether to call Shippo) and the
+ * offer page (to decide whether to render the address form).
+ */
+export type ShipmentPlan =
+  | { kind: "self_ship" } // < $2,000 — customer mails at their own cost
+  | { kind: "fedex_2day" } //  $2,000 – $4,999
+  | { kind: "fedex_overnight" }; // >= $5,000
+
+export function shipmentPlanForOffer(offerAmount?: number | null): ShipmentPlan {
+  const amt = offerAmount ?? 0;
+  if (amt < PREPAID_LABEL_THRESHOLD_USD) return { kind: "self_ship" };
+  if (amt >= OVERNIGHT_THRESHOLD_USD) return { kind: "fedex_overnight" };
+  return { kind: "fedex_2day" };
+}
+
+/**
  * Pick the FedEx service tier based on the offer amount.
  *  - >= $5,000  => FedEx Standard Overnight
  *  - otherwise  => FedEx 2 Day
