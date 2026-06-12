@@ -145,12 +145,42 @@ export async function createInboundLabel(opts: {
     // offer amount (2 Day vs Standard Overnight).
     const fedexRates = rates.filter((r) => /fedex/i.test(r.provider));
     if (!fedexRates.length) {
+      // Dump everything we can to diagnose why FedEx silently dropped from
+      // the rate list while other carriers returned. Shippo records the
+      // per-carrier failure reason on shipment.messages[] (e.g. "FedEx:
+      // Address could not be verified" or "FedEx account not authorized").
+      const messages = (shipment.messages ?? [])
+        .map((m: any) => `${m.source ?? ""}: ${m.text ?? m.code ?? JSON.stringify(m)}`)
+        .filter(Boolean);
+      const carriers = await listCarrierAccounts().catch(() => null);
+      const fedexAccounts = carriers
+        ? carriers
+            .filter((c: any) => /fedex/i.test(c.carrier))
+            .map((c: any) => ({
+              object_id: c.object_id,
+              carrier: c.carrier,
+              account_id: c.account_id,
+              active: c.active,
+              test: c.test,
+              parameters_keys: Object.keys(c.parameters ?? {}),
+            }))
+        : "(could not fetch /carrier_accounts/)";
       console.error(
-        "[shippo] no FedEx rates. providers returned=%j",
+        "[shippo] no FedEx rates. providers=%j shipment.status=%s shipment.messages=%j fedexAccounts=%j addressFrom=%j addressTo=%j",
         rates.map((r) => `${r.provider}/${r.servicelevel?.name ?? r.servicelevel?.token ?? "?"}`),
+        shipment.status,
+        messages,
+        fedexAccounts,
+        toShippoAddress(opts.from),
+        toShippoAddress(to),
       );
+      // Surface Shippo's own message verbatim if we have one — that's the
+      // FedEx-side reason and is the only thing that will actually unblock us.
+      const fedexMsg = messages.find((m: string) => /fedex/i.test(m));
       return errLabel(
-        "No FedEx rates available for this address. Verify a FedEx carrier account is connected in Shippo.",
+        fedexMsg
+          ? `FedEx rejected this shipment: ${fedexMsg}`
+          : "No FedEx rates returned for this address. Check Vercel logs for the [shippo] diagnostic line — it includes Shippo's per-carrier messages and the connected FedEx account info.",
       );
     }
 
@@ -245,6 +275,32 @@ async function shippoPost(path: string, body: unknown): Promise<any> {
     throw new Error(`Shippo ${path} ${res.status}: ${t.slice(0, 300)}`);
   }
   return res.json();
+}
+
+async function shippoGet(path: string): Promise<any> {
+  const res = await fetch(`${SHIPPO_API}${path}`, {
+    method: "GET",
+    headers: {
+      Authorization: `ShippoToken ${env.SHIPPO_API_TOKEN}`,
+    },
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Shippo GET ${path} ${res.status}: ${t.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+/**
+ * Diagnostic helper: list every carrier account connected to the Shippo
+ * account this API token belongs to. Used only when FedEx silently drops
+ * out of a rate response — we log what the API actually sees so we can
+ * tell whether the FedEx account is connected at all (vs. just toggled
+ * in the UI) and whether it's flagged active/test.
+ */
+async function listCarrierAccounts(): Promise<any[]> {
+  const j = await shippoGet("/carrier_accounts/");
+  return Array.isArray(j.results) ? j.results : [];
 }
 
 function errLabel(error: string): LabelResult {
