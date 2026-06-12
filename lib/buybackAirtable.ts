@@ -89,18 +89,43 @@ export async function upsertCustomer(contact: SellerContact): Promise<string> {
   });
   if (found.records.length) return found.records[0].id;
 
-  const created = await at<{ id: string }>(env.AIRTABLE_CUSTOMERS_TABLE, {
-    method: "POST",
-    body: JSON.stringify({
-      fields: {
-        Name: contact.name,
-        Email: contact.email,
-        Phone: contact.phone ?? "",
-        "First Buyback": today(),
-      },
-    }),
-  });
-  return created.id;
+  // Same defensive retry: if a column ("First Buyback", "Phone", etc.) is
+  // missing on the Customers table, strip it and retry rather than 500ing
+  // the whole submission.
+  const buildFields = (drop: Set<string>): Record<string, unknown> => {
+    const all: Record<string, unknown> = {
+      Name: contact.name,
+      Email: contact.email,
+      Phone: contact.phone ?? "",
+      "First Buyback": today(),
+    };
+    drop.forEach((k) => {
+      delete all[k];
+    });
+    return all;
+  };
+
+  const dropped = new Set<string>();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const created = await at<{ id: string }>(env.AIRTABLE_CUSTOMERS_TABLE, {
+        method: "POST",
+        body: JSON.stringify({ fields: buildFields(dropped), typecast: true }),
+      });
+      return created.id;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
+      if (unknown && attempt < 4) {
+        console.warn(
+          `[upsertCustomer] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+        );
+        dropped.add(unknown[1]);
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 /** Has this email sold to us before (more than zero prior buybacks)? */
@@ -133,26 +158,52 @@ export interface CreateBuybackInput {
 }
 
 export async function createBuyback(input: CreateBuybackInput): Promise<string> {
-  const fields: Record<string, unknown> = {
-    Ref: input.ref,
-    "Customer Name": input.contact.name,
-    "Customer Email": input.contact.email,
-    Status: input.status,
-    VIP: input.vip,
-    "Date Submitted": new Date().toISOString(),
-    "Item Count": input.itemCount,
-    "Estimated Value": input.estimatedValue,
-    "Avg Coin Value": input.avgCoinValue,
-    "Approval Token": input.approvalToken,
-    Source: input.source,
-    Notes: input.notes ?? "",
+  const buildFields = (drop: Set<string>): Record<string, unknown> => {
+    const all: Record<string, unknown> = {
+      Ref: input.ref,
+      "Customer Name": input.contact.name,
+      "Customer Email": input.contact.email,
+      Status: input.status,
+      VIP: input.vip,
+      "Date Submitted": new Date().toISOString(),
+      "Item Count": input.itemCount,
+      "Estimated Value": input.estimatedValue,
+      "Avg Coin Value": input.avgCoinValue,
+      "Approval Token": input.approvalToken,
+      Source: input.source,
+      Notes: input.notes ?? "",
+    };
+    if (input.customerId) all.Customer = [input.customerId];
+    drop.forEach((k) => {
+      delete all[k];
+    });
+    return all;
   };
-  if (input.customerId) fields.Customer = [input.customerId];
-  const created = await at<{ id: string }>(env.AIRTABLE_BUYBACKS_TABLE, {
-    method: "POST",
-    body: JSON.stringify({ fields, typecast: true }),
-  });
-  return created.id;
+
+  // Same defensive retry pattern we use on addItems: if the Buybacks table is
+  // missing a column we expect (UNKNOWN_FIELD_NAME), drop it and try again so
+  // the submission still succeeds while staff finish setting up the base.
+  const dropped = new Set<string>();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const created = await at<{ id: string }>(env.AIRTABLE_BUYBACKS_TABLE, {
+        method: "POST",
+        body: JSON.stringify({ fields: buildFields(dropped), typecast: true }),
+      });
+      return created.id;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
+      if (unknown && attempt < 5) {
+        console.warn(
+          `[createBuyback] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+        );
+        dropped.add(unknown[1]);
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 export async function addItems(buybackId: string, items: BuybackItem[]): Promise<void> {

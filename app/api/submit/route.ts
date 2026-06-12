@@ -123,9 +123,15 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(result);
   } catch (e: any) {
-    console.error("[submit] failed:", e?.message);
+    // Log the full error (message + stack) so we can see what blew up in Vercel logs.
+    console.error("[submit] failed:", e?.message ?? e);
+    if (e?.stack) console.error(e.stack);
+    const debug = process.env.NODE_ENV !== "production" || process.env.DEBUG_SUBMIT === "1";
     return NextResponse.json(
-      { error: "We couldn't save your submission. Please try again or email buyback@wittercoin.com." },
+      {
+        error: "We couldn't save your submission. Please try again or email buyback@wittercoin.com.",
+        ...(debug ? { detail: String(e?.message ?? e) } : {}),
+      },
       { status: 500 },
     );
   }
