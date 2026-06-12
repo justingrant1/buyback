@@ -288,6 +288,13 @@ export default function OfferPage() {
         throw new Error(`Request failed (${res.status}).${hint}`);
       }
       if (!d) throw new Error("Unexpected empty response from the server.");
+      // The server returns HTTP 200 with `ok: false` for label/Shippo errors
+      // (we deliberately avoid returning 5xx so Vercel's edge doesn't replace
+      // our JSON body with a generic "502 Bad Gateway" HTML page). Surface
+      // the real reason here.
+      if (d.ok === false) {
+        throw new Error(d.error ?? "Could not generate a shipping label.");
+      }
       setResult({ status: d.status, labelUrl: d.labelUrl });
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");

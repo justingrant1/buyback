@@ -158,9 +158,15 @@ export async function POST(
 
       if (!label.ok) {
         console.error("[offer.approve] Shippo label failed:", label.error);
+        // IMPORTANT: return 200 (not 502) so Vercel's edge doesn't replace our
+        // JSON body with its generic "502 Bad Gateway" HTML page. The frontend
+        // checks `ok === false` on the body to surface the real reason.
         return NextResponse.json(
-          { error: label.error ?? "Could not generate a shipping label." },
-          { status: 502 },
+          {
+            ok: false,
+            error: label.error ?? "Could not generate a shipping label.",
+          },
+          { status: 200 },
         );
       }
       labelUrl = label.labelUrl;

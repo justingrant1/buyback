@@ -119,13 +119,36 @@ export async function createInboundLabel(opts: {
 
     const rates: any[] = shipment.rates ?? [];
     if (!rates.length) {
-      return errLabel("No Shippo rates returned for this address.");
+      // Shippo sometimes returns a shipment with status="QUEUED" and no rates
+      // when the address fails validation, or returns `messages` describing
+      // why no carrier could quote. Surface those — they're the most useful
+      // signal for diagnosing why a label can't be created.
+      const messages = (shipment.messages ?? [])
+        .map((m: any) => `${m.source ?? ""}: ${m.text ?? m.code ?? JSON.stringify(m)}`)
+        .filter(Boolean)
+        .join(" | ");
+      console.error(
+        "[shippo] no rates returned. shipment.status=%s messages=%s addressFrom=%j addressTo=%j",
+        shipment.status,
+        messages || "(none)",
+        toShippoAddress(opts.from),
+        toShippoAddress(to),
+      );
+      return errLabel(
+        messages
+          ? `Shipping carrier rejected this address: ${messages}`
+          : "No Shippo rates returned for this address. Please double-check the street, city, state, and ZIP.",
+      );
     }
 
     // FedEx ONLY — never fall back to another carrier. Pick the tier based on
     // offer amount (2 Day vs Standard Overnight).
     const fedexRates = rates.filter((r) => /fedex/i.test(r.provider));
     if (!fedexRates.length) {
+      console.error(
+        "[shippo] no FedEx rates. providers returned=%j",
+        rates.map((r) => `${r.provider}/${r.servicelevel?.name ?? r.servicelevel?.token ?? "?"}`),
+      );
       return errLabel(
         "No FedEx rates available for this address. Verify a FedEx carrier account is connected in Shippo.",
       );
@@ -142,6 +165,11 @@ export async function createInboundLabel(opts: {
     );
 
     if (!preferred) {
+      console.error(
+        "[shippo] FedEx tier %s not in returned rates: %j",
+        svc.label,
+        fedexRates.map((r) => r.servicelevel?.name ?? r.servicelevel?.token ?? "?"),
+      );
       return errLabel(
         `FedEx did not return a "${svc.label}" rate for this address. ` +
           `Available tiers: ${fedexRates
