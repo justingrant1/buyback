@@ -42,7 +42,18 @@ export async function POST(
     );
   }
 
-  const items = await listItems(params.id);
+  // Pass both the Airtable record id AND the human ref (e.g. "BB-XXXXX") —
+  // the Items table's `Buyback` linked field, once ARRAYJOIN'd, yields the
+  // linked records' *primary field* (Ref), NOT the record IDs. Filtering by
+  // record id alone returns zero rows, which is why the itemized breakdown
+  // showed up empty in the email.
+  const items = await listItems(params.id, buyback.ref);
+  if (!items.length) {
+    console.warn(
+      `[send-offer] No items found for buyback ${params.id} / ref ${buyback.ref}. ` +
+        `Email will go out without an itemized breakdown.`,
+    );
+  }
 
   const result = await sendOfferEmail(buyback, items);
   if (!result.ok) {

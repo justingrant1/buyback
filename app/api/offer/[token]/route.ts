@@ -18,7 +18,10 @@ export async function GET(
   const buyback = await getBuybackByToken(params.token);
   if (!buyback) return NextResponse.json({ error: "Offer not found" }, { status: 404 });
 
-  const items = await listItems(buyback.id);
+  // Pass the Ref alongside the record id — the Items table's `Buyback` linked
+  // field ARRAYJOINs to primary field values (Ref), not record IDs. Without
+  // ref the customer-facing offer page renders zero line items.
+  const items = await listItems(buyback.id, buyback.ref);
   return NextResponse.json({
     ref: buyback.ref,
     customerName: buyback.customerName,
