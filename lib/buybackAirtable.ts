@@ -161,34 +161,66 @@ export async function addItems(buybackId: string, items: BuybackItem[]): Promise
   // coin's photo (if any) right afterward.
   const chunks = chunk(items, 10);
   for (const group of chunks) {
-    const created = await at<{ records: { id: string }[] }>(env.AIRTABLE_ITEMS_TABLE, {
-      method: "POST",
-      body: JSON.stringify({
-        typecast: true,
-        records: group.map((it) => ({
-          fields: {
-            Item: it.description?.slice(0, 200) || "Item",
-            Buyback: [buybackId],
-            Description: it.description ?? "",
-            Quantity: it.quantity ?? 1,
-            "Grading Service": it.gradingService ?? "",
-            "Cert Number": it.certNumber ?? "",
-            Year: it.year ?? "",
-            Denomination: it.denomination ?? "",
-            Grade: it.grade ?? "",
-            CAC: Boolean(it.cac),
-            WitterBrick: Boolean(it.witterBrick),
+    // Build the field map once per item. We then send it; if Airtable rejects
+    // an UNKNOWN_FIELD_NAME (e.g. the base doesn't have "WitterBrick" yet),
+    // we strip that one field from every row and retry. This keeps submissions
+    // working while staff finish setting up new columns in Airtable.
+    const buildFields = (it: BuybackItem, drop: Set<string>) => {
+      const all: Record<string, unknown> = {
+        Item: it.description?.slice(0, 200) || "Item",
+        Buyback: [buybackId],
+        Description: it.description ?? "",
+        Quantity: it.quantity ?? 1,
+        "Grading Service": it.gradingService ?? "",
+        "Cert Number": it.certNumber ?? "",
+        Year: it.year ?? "",
+        Denomination: it.denomination ?? "",
+        Grade: it.grade ?? "",
+        CAC: Boolean(it.cac),
+        WitterBrick: Boolean(it.witterBrick),
 
-            "CDN Bid": it.cdnBid ?? null,
-            "CDN Ask": it.cdnAsk ?? null,
-            "Dealer Ask": it.dealerAsk ?? null,
-            Offer: it.offer ?? null,
-            Category: it.category ?? "Raw",
-            Notes: it.notes ?? "",
-          },
-        })),
-      }),
-    });
+        "CDN Bid": it.cdnBid ?? null,
+        "CDN Ask": it.cdnAsk ?? null,
+        "Dealer Ask": it.dealerAsk ?? null,
+        Offer: it.offer ?? null,
+        Category: it.category ?? "Raw",
+        Notes: it.notes ?? "",
+      };
+      drop.forEach((k) => {
+        delete all[k];
+      });
+      return all;
+
+    };
+
+    const dropped = new Set<string>();
+    let created: { records: { id: string }[] };
+    // Retry up to 3x: first try with all fields, then strip any field
+    // Airtable doesn't recognize and try again. Bail out after that.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        created = await at<{ records: { id: string }[] }>(env.AIRTABLE_ITEMS_TABLE, {
+          method: "POST",
+          body: JSON.stringify({
+            typecast: true,
+            records: group.map((it) => ({ fields: buildFields(it, dropped) })),
+          }),
+        });
+        break;
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
+        if (unknown && attempt < 3) {
+          console.warn(
+            `[addItems] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+          );
+          dropped.add(unknown[1]);
+          continue;
+        }
+        throw e;
+      }
+    }
+
 
     // Attach photos to the just-created rows. Best-effort: a failed upload
     // must never sink the whole submission, so we swallow per-photo errors.

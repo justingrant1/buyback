@@ -97,7 +97,9 @@ export async function createInboundLabel(opts: {
 
 
   try {
-    // 1. Create a shipment to get rates.
+    // 1. Create a shipment and request only the FedEx service tier we want.
+    //    Carrier-account filtering would be more precise, but service-level
+    //    filtering works without us caching the FedEx carrier_account id here.
     const shipment = await shippoPost("/shipments/", {
       address_from: toShippoAddress(opts.from),
       address_to: toShippoAddress(to),
@@ -120,7 +122,8 @@ export async function createInboundLabel(opts: {
       return errLabel("No Shippo rates returned for this address.");
     }
 
-    // FedEx ONLY. Pick the tier based on offer amount (2 Day vs Standard Overnight).
+    // FedEx ONLY — never fall back to another carrier. Pick the tier based on
+    // offer amount (2 Day vs Standard Overnight).
     const fedexRates = rates.filter((r) => /fedex/i.test(r.provider));
     if (!fedexRates.length) {
       return errLabel(
@@ -128,14 +131,25 @@ export async function createInboundLabel(opts: {
       );
     }
 
-    const preferred =
-      fedexRates.find(
-        (r) =>
-          svc.match.test(r.servicelevel?.name ?? "") ||
-          r.servicelevel?.token === svc.token,
-      ) ??
-      // Fallback: take the cheapest FedEx rate if the exact tier isn't offered.
-      fedexRates.sort((a, b) => Number(a.amount) - Number(b.amount))[0];
+    // Match the exact tier we want. If FedEx didn't return it for some reason,
+    // refuse to fall back to a slower service for $5k+ shipments — surface the
+    // error so staff can intervene rather than silently shipping 2-day on a
+    // high-value buyback.
+    const preferred = fedexRates.find(
+      (r) =>
+        svc.match.test(r.servicelevel?.name ?? "") ||
+        r.servicelevel?.token === svc.token,
+    );
+
+    if (!preferred) {
+      return errLabel(
+        `FedEx did not return a "${svc.label}" rate for this address. ` +
+          `Available tiers: ${fedexRates
+            .map((r) => r.servicelevel?.name ?? r.servicelevel?.token ?? "?")
+            .join(", ")}.`,
+      );
+    }
+
 
 
     // 2. Buy the label (transaction).

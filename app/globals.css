@@ -6,6 +6,11 @@
   color-scheme: light;
 }
 
+html,
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
 body {
   @apply bg-slate-50 text-ink antialiased;
 }

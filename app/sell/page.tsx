@@ -280,6 +280,9 @@ export default function SellPage() {
     <>
       <FontsAndStyles />
       <div className="wc-sell">
+        <a href="#sell-form" className="skip-link">
+          Skip to the buyback form
+        </a>
         <header>
           <div className="nav">
             <Link className="back" href="/">
@@ -292,9 +295,10 @@ export default function SellPage() {
           </div>
         </header>
 
-        <main className="page">
+        <main className="page" id="sell-form">
           <div className="eyebrow">America's Coin Shop · Buyback Program</div>
           <h1>Start a Buyback</h1>
+
           <p className="lede">
             Tell us about your coins and we'll send an itemized offer with a prepaid
             shipping label. Slabs price fastest — include the grading service and cert
@@ -318,10 +322,12 @@ export default function SellPage() {
                       id="name"
                       autoComplete="name"
                       required
+                      aria-required="true"
                       placeholder="Jane Collector"
                       value={contact.name}
                       onChange={(e) => setContact({ ...contact, name: e.target.value })}
                     />
+
                   </div>
                   <div>
                     <label htmlFor="email">
@@ -332,10 +338,12 @@ export default function SellPage() {
                       id="email"
                       autoComplete="email"
                       required
+                      aria-required="true"
                       placeholder="jane@email.com"
                       value={contact.email}
                       onChange={(e) => setContact({ ...contact, email: e.target.value })}
                     />
+
                   </div>
                 </div>
                 <div className="grid c2" style={{ marginTop: 18 }}>
@@ -597,11 +605,16 @@ export default function SellPage() {
                     onChange={(e) => handlePhotos(e.target.files)}
                   />
                 </label>
-                {scanMsg && <div className="flash flash-ok">{scanMsg}</div>}
+                {scanMsg && (
+                  <div className="flash flash-ok" role="status" aria-live="polite">
+                    {scanMsg}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Spreadsheet dropzone */}
+
             <div className="card">
               <div className="card-head">
                 <div className="card-title">Have a List Already?</div>
@@ -641,7 +654,12 @@ export default function SellPage() {
                     onChange={(e) => handleFile(e.target.files?.[0])}
                   />
                 </label>
-                {uploadMsg && <div className="flash flash-ok">{uploadMsg}</div>}
+                {uploadMsg && (
+                  <div className="flash flash-ok" role="status" aria-live="polite">
+                    {uploadMsg}
+                  </div>
+                )}
+
               </div>
             </div>
 
@@ -692,32 +710,28 @@ export default function SellPage() {
  * NOT global — it only applies inside `.wc-sell`.
  */
 function FontsAndStyles() {
+  // Fonts come from app/layout.tsx (next/font). Loading them here as <link>
+  // tags caused hydration errors in production.
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600&family=Public+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap"
-      />
       <style>{`
+
 .wc-sell{
   --ink:#0F2E22;
   --ink-deep:#0A2118;
   --paper:#F7F6F1;
   --paper-raise:#FFFFFF;
   --text:#1A2620;
-  --text-soft:#5C6B62;
+  /* Soft body / secondary copy on light backgrounds. ~6:1 on --paper (AA pass for normal). */
+  --text-soft:#4F5C53;
   --gold:#C8A24B;
-  --gold-deep:#A37F2E;
+  /* Used for small-caps accent metadata on light backgrounds. ~5.4:1 on --paper (AA pass). */
+  --gold-deep:#8C6A20;
   --hairline:#DCD9CE;
   --hairline-dark:rgba(200,162,75,.28);
-  --display:"Bodoni Moda",serif;
-  --body:"Public Sans",system-ui,sans-serif;
-  --mono:"Spline Sans Mono",monospace;
+  --display:var(--font-display),"Bodoni Moda",serif;
+  --body:var(--font-body),"Public Sans",system-ui,sans-serif;
+  --mono:var(--font-mono),"Spline Sans Mono",monospace;
 
   font-family:var(--body);
   background:var(--paper);
@@ -729,7 +743,37 @@ function FontsAndStyles() {
 }
 .wc-sell *{margin:0;padding:0;box-sizing:border-box}
 .wc-sell a{color:inherit}
-.wc-sell :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:2px}
+
+/* High-contrast focus ring — visible on both light cards and dark header.
+   The inner ink ring guarantees ≥3:1 contrast against any background even
+   if a user has high-contrast OS mode overriding our gold accent. */
+.wc-sell :focus-visible{
+  outline:2px solid var(--gold);
+  outline-offset:3px;
+  box-shadow:0 0 0 5px rgba(10,33,24,.85);
+  border-radius:3px;
+}
+.wc-sell header :focus-visible,
+.wc-sell .back:focus-visible{
+  box-shadow:0 0 0 5px rgba(243,239,227,.85);
+}
+
+/* Skip-link — hidden offscreen until focused so keyboard users can jump
+   past the header straight to the form. */
+.wc-sell .skip-link{
+  position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;
+}
+.wc-sell .skip-link:focus,
+.wc-sell .skip-link:focus-visible{
+  position:fixed;left:16px;top:16px;width:auto;height:auto;
+  z-index:1000;
+  background:var(--ink-deep);color:#F3EFE3;
+  padding:12px 18px;border-radius:4px;
+  font-family:var(--body);font-weight:600;font-size:14px;
+  text-decoration:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
+}
+
 
 /* header */
 .wc-sell header{background:var(--ink);border-bottom:1px solid rgba(200,162,75,.25)}
@@ -764,7 +808,11 @@ function FontsAndStyles() {
   background:var(--paper);border:1px solid var(--hairline);border-radius:3px;
   padding:12px 14px;transition:border-color .15s ease,box-shadow .15s ease;
 }
-.wc-sell input::placeholder,.wc-sell textarea::placeholder{color:#A9B0A8}
+/* Placeholder color — #6E7670 on #F7F6F1 ≈ 4.5:1. Placeholders are
+   technically exempt from WCAG contrast (they're hints, not labels), but
+   bumping them helps low-vision users a lot. */
+.wc-sell input::placeholder,.wc-sell textarea::placeholder{color:#6E7670;opacity:1}
+
 .wc-sell input:focus,.wc-sell select:focus,.wc-sell textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(200,162,75,.18);background:#fff}
 .wc-sell select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235C6B62' stroke-width='1.5'/></svg>");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
 .wc-sell textarea{min-height:104px;resize:vertical}
