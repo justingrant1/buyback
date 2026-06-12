@@ -86,8 +86,11 @@ function loadGooglePlaces(): Promise<any> {
 
 
 /**
- * Splits a google.maps.places.PlaceResult into our { street, city, state, zip }
- * shape. Handles US addresses (the only ones Shippo will route via FedEx anyway).
+ * Normalize a Place's address components into our { street, city, state, zip }
+ * shape. Handles both the legacy snake_case PlaceResult (`address_components`,
+ * `long_name`, `short_name`) and the new Places API camelCase Place
+ * (`addressComponents`, `longText`, `shortText`) — the new
+ * `PlaceAutocompleteElement` returns the latter.
  */
 function placeToAddress(place: any): {
   street: string;
@@ -95,10 +98,14 @@ function placeToAddress(place: any): {
   state: string;
   zip: string;
 } {
-  const comps: any[] = place?.address_components ?? [];
+  const comps: any[] = place?.addressComponents ?? place?.address_components ?? [];
   const get = (type: string, short = false) => {
     const c = comps.find((x) => x.types?.includes(type));
-    return c ? (short ? c.short_name : c.long_name) : "";
+    if (!c) return "";
+    // New API uses longText/shortText; legacy uses long_name/short_name.
+    return short
+      ? c.shortText ?? c.short_name ?? ""
+      : c.longText ?? c.long_name ?? "";
   };
   const streetNumber = get("street_number");
   const route = get("route");
@@ -142,7 +149,10 @@ export default function OfferPage() {
   const [ship, setShip] = useState({ street: "", city: "", state: "", zip: "" });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<null | { status: string; labelUrl?: string }>(null);
-  const streetInputRef = useRef<HTMLInputElement | null>(null);
+  // Container the new <gmp-place-autocomplete> element mounts into. The
+  // element renders its own input internally — we just give it a slot in our
+  // layout and read the selection event.
+  const autocompleteHostRef = useRef<HTMLDivElement | null>(null);
   const autocompleteRef = useRef<any>(null);
 
 
@@ -157,42 +167,85 @@ export default function OfferPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  // Attach Google Places autocomplete to the street input once the offer has
-  // loaded (and only if we have a key configured). When the customer picks a
-  // suggestion, all four address fields are auto-populated.
+  // Attach Google Places autocomplete once the offer has loaded (and only if
+  // we have a key configured). When the customer picks a suggestion, all four
+  // address fields are auto-populated.
   //
-  // We use the legacy `places.Autocomplete` widget because it can be wired to
-  // an existing <input>, which keeps our styled UI intact. The new
-  // `PlaceAutocompleteElement` is a custom element that wants to render its
-  // own input — switching to it would require redesigning this form. The
-  // legacy widget is still supported (Google's deprecation notice says at
-  // least 12 months notice will be given before removal).
+  // We use the new `PlaceAutocompleteElement` (the Web Component
+  // <gmp-place-autocomplete>) — the legacy `places.Autocomplete` widget is no
+  // longer enabled for projects created after March 1, 2025. The element
+  // renders its own input internally, so we just mount it in a host div and
+  // listen for the `gmp-select` event; we then call `place.fetchFields(...)`
+  // to pull the address components.
   useEffect(() => {
     if (!offer) return;
-    if (!streetInputRef.current) return;
+    if (!autocompleteHostRef.current) return;
     if (autocompleteRef.current) return; // already wired
 
     let cancelled = false;
     loadGooglePlaces().then((places: any) => {
-      if (cancelled || !places || !streetInputRef.current) return;
-      if (!places.Autocomplete) return;
-      const ac = new places.Autocomplete(streetInputRef.current, {
-        types: ["address"],
-        componentRestrictions: { country: ["us"] },
-        fields: ["address_components", "formatted_address"],
-      });
-      ac.addListener("place_changed", () => {
-        const place = ac.getPlace();
-        const addr = placeToAddress(place);
-        if (addr.street || addr.city || addr.state || addr.zip) {
-          setShip(addr);
+      if (cancelled || !places || !autocompleteHostRef.current) return;
+      if (!places.PlaceAutocompleteElement) return;
+
+      let el: any;
+      try {
+        el = new places.PlaceAutocompleteElement({
+          includedRegionCodes: ["us"],
+          types: ["address"],
+        });
+      } catch {
+        // Older preview builds used a different option shape. Fall back to a
+        // plain constructor and configure via attributes/properties.
+        try {
+          el = new places.PlaceAutocompleteElement();
+          (el as any).includedRegionCodes = ["us"];
+        } catch {
+          return;
         }
-      });
-      autocompleteRef.current = ac;
+      }
+
+      // Match our other inputs visually. The element exposes ::part(input)
+      // for the inner <input> — we style that via globals.css.
+      el.classList.add("gmp-autocomplete");
+      el.style.width = "100%";
+
+      const onSelect = async (ev: any) => {
+        try {
+          const prediction = ev?.placePrediction ?? ev?.detail?.placePrediction;
+          if (!prediction) return;
+          const place = prediction.toPlace();
+          // Ask only for the fields we actually need so we don't get billed
+          // for the full Place details SKU.
+          await place.fetchFields({
+            fields: ["addressComponents", "formattedAddress"],
+          });
+          // place.toJSON() yields camelCase; the live object also exposes
+          // the same properties.
+          const data = typeof place.toJSON === "function" ? place.toJSON() : place;
+          const addr = placeToAddress(data);
+          if (addr.street || addr.city || addr.state || addr.zip) {
+            setShip(addr);
+          }
+        } catch (e) {
+          console.warn("[offer] place select handler failed:", e);
+        }
+      };
+
+      // The stable event name is `gmp-select`. Some preview builds emitted
+      // `gmp-placeselect` — listen for both, the no-op cost is nothing.
+      el.addEventListener("gmp-select", onSelect);
+      el.addEventListener("gmp-placeselect", onSelect);
+
+      autocompleteHostRef.current.appendChild(el);
+      autocompleteRef.current = el;
     });
 
     return () => {
       cancelled = true;
+      const host = autocompleteHostRef.current;
+      const el = autocompleteRef.current;
+      if (host && el && el.parentNode === host) host.removeChild(el);
+      autocompleteRef.current = null;
     };
   }, [offer]);
 
@@ -314,14 +367,32 @@ export default function OfferPage() {
                   : "Enter your address below."}
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <input
-                  ref={streetInputRef}
-                  className="input sm:col-span-2"
-                  placeholder={GOOGLE_MAPS_KEY ? "Start typing your address…" : "Street address"}
-                  autoComplete="off"
-                  value={ship.street}
-                  onChange={(e) => setShip({ ...ship, street: e.target.value })}
-                />
+                {GOOGLE_MAPS_KEY ? (
+                  // Host for <gmp-place-autocomplete>. The element renders
+                  // its own input; we style it via .gmp-autocomplete in
+                  // globals.css so it visually matches our other inputs.
+                  <div ref={autocompleteHostRef} className="sm:col-span-2" />
+                ) : (
+                  <input
+                    className="input sm:col-span-2"
+                    placeholder="Street address"
+                    autoComplete="off"
+                    value={ship.street}
+                    onChange={(e) => setShip({ ...ship, street: e.target.value })}
+                  />
+                )}
+
+                {/* Always show the parsed street so the customer can edit it
+                    after picking from autocomplete (apartment number etc.). */}
+                {GOOGLE_MAPS_KEY && (
+                  <input
+                    className="input sm:col-span-2"
+                    placeholder="Street address (apt, suite, etc.)"
+                    autoComplete="off"
+                    value={ship.street}
+                    onChange={(e) => setShip({ ...ship, street: e.target.value })}
+                  />
+                )}
 
                 <input
                   className="input"

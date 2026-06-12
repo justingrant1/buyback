@@ -37,3 +37,33 @@ body {
 .badge {
   @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
 }
+
+/* --------------------------------------------------------------------- */
+/* Google Places — <gmp-place-autocomplete>                              */
+/*                                                                       */
+/* The new Web Component renders its own <input> in a shadow root. We    */
+/* style it via ::part(input) (Google exposes the input part) to keep    */
+/* the same look as our other .input fields. We also size the host so    */
+/* it stretches like a normal block input.                               */
+/* --------------------------------------------------------------------- */
+gmp-place-autocomplete.gmp-autocomplete {
+  display: block;
+  width: 100%;
+}
+gmp-place-autocomplete.gmp-autocomplete::part(input) {
+  width: 100%;
+  border-radius: 0.5rem;          /* matches rounded-lg */
+  border: 1px solid rgb(203 213 225); /* slate-300 */
+  padding: 0.5rem 0.75rem;        /* px-3 py-2 */
+  font-size: 0.875rem;            /* text-sm */
+  line-height: 1.25rem;
+  outline: none;
+  background: white;
+  color: inherit;
+}
+gmp-place-autocomplete.gmp-autocomplete::part(input):focus {
+  border-color: theme("colors.brand.DEFAULT", #1976d2);
+  box-shadow: 0 0 0 2px rgb(25 118 210 / 0.2);
+}
+
+
