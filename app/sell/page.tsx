@@ -37,7 +37,6 @@ function rowFromItem(item: BuybackItem): Row {
     cac: item.cac,
     witterBrick: item.witterBrick,
     photoDataUrl: item.photoDataUrl,
-
     ...((item as any).dealerAsk != null ? { dealerAsk: (item as any).dealerAsk } : {}),
     ...((item as any).faceValue != null ? { faceValue: (item as any).faceValue } : {}),
   } as Row;
@@ -84,8 +83,6 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
   return new File([bytes], filename, { type: mime });
 }
 
-
-
 export default function SellPage() {
   const [contact, setContact] = useState<SellerContact>({
     name: "",
@@ -106,6 +103,10 @@ export default function SellPage() {
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
 
+  // Tracks which dropzone is currently being dragged over so we can give it a
+  // gold highlight to match the editorial design.
+  const [dragOver, setDragOver] = useState<"photo" | "sheet" | null>(null);
+
   async function handlePhotos(fileList: FileList | null | undefined) {
     const files = Array.from(fileList ?? []).slice(0, 2); // one slab each, max 2
     if (!files.length) return;
@@ -115,8 +116,6 @@ export default function SellPage() {
     try {
       const fd = new FormData();
       for (const f of files) {
-        // Downscale in the browser so we send small images and can keep a copy
-        // attached to the row for Airtable.
         const dataUrl = await downscaleToDataUrl(f);
         fd.append("photo", dataUrlToFile(dataUrl, f.name || "slab.jpg"));
       }
@@ -141,7 +140,6 @@ export default function SellPage() {
     }
   }
 
-
   async function handleFile(file: File | null | undefined) {
     if (!file) return;
     setError(null);
@@ -158,7 +156,6 @@ export default function SellPage() {
       if (!parsed.length) throw new Error("No coins found in that file.");
 
       const newRows = parsed.map(rowFromItem);
-      // Replace the empty starter row; otherwise append to what's there.
       setRows((rs) => {
         const meaningful = rs.filter((r) => r.description.trim());
         return meaningful.length ? [...meaningful, ...newRows] : newRows;
@@ -183,7 +180,8 @@ export default function SellPage() {
     setRows((rs) => (rs.length > 1 ? rs.filter((r) => r._key !== key) : rs));
   }
 
-  async function submit() {
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     if (!contact.name.trim() || !contact.email.trim()) {
       setError("Please enter your name and email.");
@@ -213,354 +211,623 @@ export default function SellPage() {
     }
   }
 
+  // ---- success view (kept editorial; matches new design tokens) ----
   if (done) {
     return (
-      <main className="mx-auto max-w-xl px-6 py-20 text-center">
-        <div className="card p-8">
-          <h1 className="text-2xl font-bold text-brand">You're all set! 🎉</h1>
-          <p className="mt-4 text-slate-600">{done.message}</p>
-          <p className="mt-6 text-sm text-slate-500">
-            Your reference number is{" "}
-            <span className="font-mono font-semibold text-ink">{done.ref}</span>
-          </p>
-          <Link href="/" className="btn-ghost mt-8">
-            Back to home
-          </Link>
+      <>
+        <FontsAndStyles />
+        <div className="wc-sell">
+          <header>
+            <div className="nav">
+              <Link className="back" href="/">
+                ← Witter Coin
+              </Link>
+              <Link className="wordmark" href="/">
+                <span className="name">WITTER COIN</span>
+                <span className="sub">Buyback</span>
+              </Link>
+            </div>
+          </header>
+          <main className="page" style={{ textAlign: "center" }}>
+            <div className="eyebrow">Submission Received</div>
+            <h1>You're all set.</h1>
+            <p className="lede" style={{ margin: "0 auto" }}>
+              {done.message}
+            </p>
+            <div className="card" style={{ marginTop: 32 }}>
+              <div className="card-body" style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontFamily: "var(--mono)",
+                    fontSize: 11,
+                    letterSpacing: ".22em",
+                    textTransform: "uppercase",
+                    color: "var(--text-soft)",
+                  }}
+                >
+                  Reference number
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--display)",
+                    fontSize: 28,
+                    fontWeight: 600,
+                    color: "var(--ink)",
+                    marginTop: 8,
+                  }}
+                >
+                  {done.ref}
+                </div>
+              </div>
+            </div>
+            <div className="submit-wrap">
+              <Link href="/" className="add-coin" style={{ display: "inline-block" }}>
+                Back to home
+              </Link>
+            </div>
+          </main>
+          <footer>
+            © 2026 Witter Coin · America's Coin Shop ·{" "}
+            <a href="mailto:buyback@wittercoin.com">buyback@wittercoin.com</a>
+          </footer>
         </div>
-      </main>
+      </>
     );
   }
 
+  // ---- main form ----
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <header className="mb-8">
-        <Link href="/" className="text-sm text-brand hover:underline">
-          ← Witter Coin
-        </Link>
-        <h1 className="mt-2 text-3xl font-bold text-ink">Start a Buyback</h1>
-        <p className="mt-1 text-slate-600">
-          Tell us about your coins and we'll send an itemized offer with a prepaid
-          shipping label. Slabs price fastest — include the grading service and cert
-          number.
-        </p>
-      </header>
-
-      {/* Contact */}
-      <section className="card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Your details
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label">Full name *</label>
-            <input
-              className="input"
-              value={contact.name}
-              onChange={(e) => setContact({ ...contact, name: e.target.value })}
-              placeholder="Jane Collector"
-            />
+    <>
+      <FontsAndStyles />
+      <div className="wc-sell">
+        <header>
+          <div className="nav">
+            <Link className="back" href="/">
+              ← Witter Coin
+            </Link>
+            <Link className="wordmark" href="/">
+              <span className="name">WITTER COIN</span>
+              <span className="sub">Buyback</span>
+            </Link>
           </div>
-          <div>
-            <label className="label">Email *</label>
-            <input
-              className="input"
-              type="email"
-              value={contact.email}
-              onChange={(e) => setContact({ ...contact, email: e.target.value })}
-              placeholder="jane@email.com"
-            />
-          </div>
-          <div>
-            <label className="label">Phone</label>
-            <input
-              className="input"
-              value={contact.phone ?? ""}
-              onChange={(e) => setContact({ ...contact, phone: e.target.value })}
-              placeholder="(555) 555-1234"
-            />
-          </div>
-        </div>
-      </section>
+        </header>
 
-      {/* Items */}
-      <section className="card mb-6 p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Your coins
-          </h2>
-          <button onClick={addRow} className="btn-ghost text-xs">
-            + Add coin
-          </button>
-        </div>
+        <main className="page">
+          <div className="eyebrow">America's Coin Shop · Buyback Program</div>
+          <h1>Start a Buyback</h1>
+          <p className="lede">
+            Tell us about your coins and we'll send an itemized offer with a prepaid
+            shipping label. Slabs price fastest — include the grading service and cert
+            number.
+          </p>
 
-
-        <div className="space-y-4">
-          {rows.map((row, i) => (
-            <div key={row._key} className="rounded-lg border border-slate-200 p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-400">Coin {i + 1}</span>
-                {rows.length > 1 && (
-                  <button
-                    onClick={() => removeRow(row._key)}
-                    className="text-xs text-red-500 hover:underline"
-                  >
-                    Remove
-                  </button>
-                )}
+          <form id="buyback-form" noValidate onSubmit={submit}>
+            {/* Your Details */}
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Your Details</div>
               </div>
-
-              {row.photoDataUrl && (
-                <div className="mb-3 flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={row.photoDataUrl}
-                    alt="Scanned slab"
-                    className="h-16 w-16 rounded-md border border-slate-200 object-cover"
-                  />
-                  <span className="text-xs text-slate-400">
-                    Read from your photo — double-check the details below.
-                  </span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-6">
-                <div className="sm:col-span-4">
-                  <label className="label">Description *</label>
-
-                  <input
-                    className="input"
-                    value={row.description}
-                    onChange={(e) => updateRow(row._key, { description: e.target.value })}
-                    placeholder="1881-S Morgan Dollar MS65"
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="label">Qty</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    value={row.quantity}
-                    onChange={(e) =>
-                      updateRow(row._key, { quantity: Number(e.target.value) || 1 })
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="label">Type</label>
-                  <select
-                    className="input"
-                    value={row.category}
-                    onChange={(e) =>
-                      updateRow(row._key, { category: e.target.value as ItemCategory })
-                    }
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {row.category === "Slab" && (
-                  <>
-                    <div className="sm:col-span-2">
-                      <label className="label">Grading service</label>
-                      <select
-                        className="input"
-                        value={row.gradingService}
-                        onChange={(e) =>
-                          updateRow(row._key, { gradingService: e.target.value })
-                        }
-                      >
-                        <option value="">—</option>
-                        <option value="PCGS">PCGS</option>
-                        <option value="NGC">NGC</option>
-                        <option value="ANACS">ANACS</option>
-                        <option value="ICG">ICG</option>
-                      </select>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="label">Cert number</label>
-                      <input
-                        className="input"
-                        value={row.certNumber}
-                        onChange={(e) =>
-                          updateRow(row._key, { certNumber: e.target.value })
-                        }
-                        placeholder="e.g. 12345678"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="label">Grade</label>
-                      <input
-                        className="input"
-                        value={row.grade}
-                        onChange={(e) => updateRow(row._key, { grade: e.target.value })}
-                        placeholder="MS65"
-                      />
-                    </div>
-
-                    {/* Slab modifiers: CAC sticker (third-party verification) and
-                        WitterBrick (our in-house premium tier). Both are pure
-                        booleans on the item — staff use them downstream. */}
-                    <div className="sm:col-span-6 flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
-                      <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                          checked={!!row.cac}
-                          onChange={(e) =>
-                            updateRow(row._key, { cac: e.target.checked })
-                          }
-                        />
-                        CAC graded
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                          checked={!!row.witterBrick}
-                          onChange={(e) =>
-                            updateRow(row._key, { witterBrick: e.target.checked })
-                          }
-                        />
-                        WitterBrick
-                      </label>
-                    </div>
-                  </>
-                )}
-
-
-                {row.category === "Junk Silver" && (
-                  <div className="sm:col-span-2">
-                    <label className="label">Face value ($)</label>
+              <div className="card-body">
+                <div className="grid c2">
+                  <div>
+                    <label htmlFor="name">
+                      Full name <span className="req">*</span>
+                    </label>
                     <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step="0.10"
-                      onChange={(e) =>
-                        updateRow(row._key, {
-                          // stash on the item; server reads faceValue
-                          ...( { faceValue: Number(e.target.value) || 0 } as any ),
-                        })
-                      }
-                      placeholder="e.g. 50"
+                      type="text"
+                      id="name"
+                      autoComplete="name"
+                      required
+                      placeholder="Jane Collector"
+                      value={contact.name}
+                      onChange={(e) => setContact({ ...contact, name: e.target.value })}
                     />
                   </div>
-                )}
+                  <div>
+                    <label htmlFor="email">
+                      Email <span className="req">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      id="email"
+                      autoComplete="email"
+                      required
+                      placeholder="jane@email.com"
+                      value={contact.email}
+                      onChange={(e) => setContact({ ...contact, email: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid c2" style={{ marginTop: 18 }}>
+                  <div>
+                    <label htmlFor="phone">
+                      Phone <span className="opt">(optional)</span>
+                    </label>
+                    <input
+                      type="tel"
+                      id="phone"
+                      autoComplete="tel"
+                      placeholder="(555) 555-1234"
+                      value={contact.phone ?? ""}
+                      onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Snap a photo of a slab */}
-      <section className="card mb-6 p-5">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Or add coins faster — snap a photo
-        </h2>
+            {/* Your Coins */}
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Your Coins</div>
+                <button type="button" className="add-coin" onClick={addRow}>
+                  + Add coin
+                </button>
+              </div>
+              <div className="card-body">
+                {rows.map((row, i) => (
+                  <div key={row._key} className="coin">
+                    <div className="coin-no">
+                      <span>Coin {i + 1}</span>
+                      {rows.length > 1 && (
+                        <button
+                          type="button"
+                          className="remove"
+                          onClick={() => removeRow(row._key)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
 
-        <p className="mb-4 text-sm text-slate-600">
-          Take a clear, straight-on photo of the label (up to 2 slabs, one per photo).
-          We'll read the grading service, cert number, year, and grade and fill in the
-          coin below for you to review.
-        </p>
+                    {row.photoDataUrl && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          marginBottom: 14,
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={row.photoDataUrl}
+                          alt="Scanned slab"
+                          style={{
+                            height: 56,
+                            width: 56,
+                            borderRadius: 3,
+                            border: "1px solid var(--hairline)",
+                            objectFit: "cover",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontFamily: "var(--mono)",
+                            fontSize: 11,
+                            letterSpacing: ".06em",
+                            color: "var(--text-soft)",
+                          }}
+                        >
+                          Read from your photo — double-check the details below.
+                        </span>
+                      </div>
+                    )}
 
-        <label
-          htmlFor="slab-photo"
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
-        >
-          <span className="text-sm font-medium text-ink">
-            {scanning ? "Reading your slab…" : "Tap to take or choose a photo"}
-          </span>
-          <span className="mt-1 text-xs text-slate-400">JPG or PNG — up to 2 slabs</span>
-          <input
-            id="slab-photo"
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            className="hidden"
-            disabled={scanning}
-            onChange={(e) => handlePhotos(e.target.files)}
-          />
-        </label>
+                    <div className="row-main">
+                      <div>
+                        <label>
+                          Description <span className="req">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="1881-S Morgan Dollar MS65"
+                          value={row.description}
+                          onChange={(e) =>
+                            updateRow(row._key, { description: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label>Qty</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.quantity}
+                          onChange={(e) =>
+                            updateRow(row._key, {
+                              quantity: Number(e.target.value) || 1,
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label>Type</label>
+                        <select
+                          value={row.category}
+                          onChange={(e) =>
+                            updateRow(row._key, {
+                              category: e.target.value as ItemCategory,
+                            })
+                          }
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
 
-        {scanMsg && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            {scanMsg}
-          </p>
-        )}
-      </section>
+                    {row.category === "Slab" && (
+                      <>
+                        <div className="row-cert" style={{ marginTop: 14 }}>
+                          <div>
+                            <label>Grading service</label>
+                            <select
+                              value={row.gradingService}
+                              onChange={(e) =>
+                                updateRow(row._key, { gradingService: e.target.value })
+                              }
+                            >
+                              <option value="">—</option>
+                              <option value="PCGS">PCGS</option>
+                              <option value="NGC">NGC</option>
+                              <option value="ANACS">ANACS</option>
+                              <option value="ICG">ICG</option>
+                              <option value="CACG">CACG</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label>Cert number</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 12345678"
+                              value={row.certNumber}
+                              onChange={(e) =>
+                                updateRow(row._key, { certNumber: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label>Grade</label>
+                            <input
+                              type="text"
+                              placeholder="MS65"
+                              value={row.grade}
+                              onChange={(e) =>
+                                updateRow(row._key, { grade: e.target.value })
+                              }
+                            />
+                          </div>
+                        </div>
 
-      {/* Upload a spreadsheet */}
-      <section className="card mb-6 p-5">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Have a list already?
-        </h2>
+                        {/* CAC + WitterBrick are pure metadata booleans the customer
+                            can self-declare. Staff act on them downstream — they
+                            don't currently affect the auto-estimate. */}
+                        <div className="modifiers">
+                          <label className="cbx">
+                            <input
+                              type="checkbox"
+                              checked={!!row.cac}
+                              onChange={(e) =>
+                                updateRow(row._key, { cac: e.target.checked })
+                              }
+                            />
+                            <span>CAC graded</span>
+                          </label>
+                          <label className="cbx">
+                            <input
+                              type="checkbox"
+                              checked={!!row.witterBrick}
+                              onChange={(e) =>
+                                updateRow(row._key, { witterBrick: e.target.checked })
+                              }
+                            />
+                            <span>WitterBrick</span>
+                          </label>
+                        </div>
+                      </>
+                    )}
 
-        <p className="mb-4 text-sm text-slate-600">
-          Upload your spreadsheet — CSV or Excel, with your columns in any order or
-          naming. We'll read it, sort out the columns, and fill in your coins below
-          for you to review.
-        </p>
+                    {row.category === "Junk Silver" && (
+                      <div className="row-cert" style={{ marginTop: 14 }}>
+                        <div>
+                          <label>Face value ($)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.10"
+                            placeholder="e.g. 50"
+                            onChange={(e) =>
+                              updateRow(row._key, {
+                                ...({
+                                  faceValue: Number(e.target.value) || 0,
+                                } as any),
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        <label
-          htmlFor="sheet-upload"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            handleFile(e.dataTransfer.files?.[0]);
-          }}
-          className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-4 py-8 text-center transition hover:border-brand hover:bg-slate-50"
-        >
-          <span className="text-sm font-medium text-ink">
-            {uploading ? "Reading your file…" : "Click to upload or drag a file here"}
-          </span>
-          <span className="mt-1 text-xs text-slate-400">.csv, .xlsx, or .xls — up to 8 MB</span>
-          <input
-            id="sheet-upload"
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-        </label>
+            {/* Photo dropzone */}
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Or Add Coins Faster — Snap a Photo</div>
+              </div>
+              <p className="card-sub">
+                Take a clear, straight-on photo of the label (up to 2 slabs, one per
+                photo). We'll read the grading service, cert number, year, and grade and
+                fill in the coin below for you to review.
+              </p>
+              <div className="card-body">
+                <label
+                  htmlFor="photo-input"
+                  className={`drop ${dragOver === "photo" ? "dragover" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver("photo");
+                  }}
+                  onDragLeave={() => setDragOver(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(null);
+                    handlePhotos(e.dataTransfer.files);
+                  }}
+                >
+                  <div className="big">
+                    {scanning ? "Reading your slab…" : "Tap to take or choose a photo"}
+                  </div>
+                  <div className="small">JPG or PNG — up to 2 slabs</div>
+                  <input
+                    id="photo-input"
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    capture="environment"
+                    multiple
+                    disabled={scanning}
+                    onChange={(e) => handlePhotos(e.target.files)}
+                  />
+                </label>
+                {scanMsg && <div className="flash flash-ok">{scanMsg}</div>}
+              </div>
+            </div>
 
-        {uploadMsg && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-            {uploadMsg}
-          </p>
-        )}
-      </section>
+            {/* Spreadsheet dropzone */}
+            <div className="card">
+              <div className="card-head">
+                <div className="card-title">Have a List Already?</div>
+              </div>
+              <p className="card-sub">
+                Upload your spreadsheet — CSV or Excel, with your columns in any order or
+                naming. We'll read it, sort out the columns, and fill in your coins below
+                for you to review.
+              </p>
+              <div className="card-body">
+                <label
+                  htmlFor="file-input"
+                  className={`drop ${dragOver === "sheet" ? "dragover" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver("sheet");
+                  }}
+                  onDragLeave={() => setDragOver(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(null);
+                    handleFile(e.dataTransfer.files?.[0]);
+                  }}
+                >
+                  <div className="big">
+                    {uploading
+                      ? "Reading your file…"
+                      : "Click to upload or drag a file here"}
+                  </div>
+                  <div className="small">.csv, .xlsx, or .xls — up to 8 MB</div>
+                  <input
+                    id="file-input"
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    disabled={uploading}
+                    onChange={(e) => handleFile(e.target.files?.[0])}
+                  />
+                </label>
+                {uploadMsg && <div className="flash flash-ok">{uploadMsg}</div>}
+              </div>
+            </div>
 
-      <section className="card mb-6 p-5">
-        <label className="label">Anything we should know? (optional)</label>
+            {/* Notes */}
+            <div className="card">
+              <div className="card-body" style={{ paddingTop: 24 }}>
+                <label htmlFor="notes">
+                  Anything we should know? <span className="opt">(optional)</span>
+                </label>
+                <textarea
+                  id="notes"
+                  placeholder="Notes, special requests, or a link to photos…"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+            </div>
 
-        <textarea
-          className="input min-h-[80px]"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes, special requests, or a link to photos…"
-        />
-      </section>
+            {error && <div className="flash flash-err">{error}</div>}
 
-      {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
-      )}
+            <div className="submit-wrap">
+              <button type="submit" className="btn-submit" disabled={submitting}>
+                {submitting ? "Submitting…" : "Submit for an Offer →"}
+              </button>
+              <div className="submit-note">
+                No obligation. We'll email you an itemized offer to review before you
+                ship anything.
+              </div>
+            </div>
+          </form>
+        </main>
 
-      <button onClick={submit} disabled={submitting} className="btn-primary w-full py-3 text-base">
-        {submitting ? "Submitting…" : "Submit for an Offer"}
-      </button>
-      <p className="mt-3 text-center text-xs text-slate-400">
-        No obligation. We'll email you an itemized offer to review before you ship anything.
-      </p>
-    </main>
+        <footer>
+          © 2026 Witter Coin · America's Coin Shop ·{" "}
+          <a href="mailto:buyback@wittercoin.com">buyback@wittercoin.com</a>
+        </footer>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Fonts + scoped styles for the /sell page.
+ *
+ * Everything is namespaced under `.wc-sell` so the editorial design doesn't
+ * collide with the Tailwind utility classes still used in /admin and
+ * /offer/[token]. The CSS reset (`*{margin:0;padding:0;…}`) is intentionally
+ * NOT global — it only applies inside `.wc-sell`.
+ */
+function FontsAndStyles() {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600&family=Public+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap"
+      />
+      <style>{`
+.wc-sell{
+  --ink:#0F2E22;
+  --ink-deep:#0A2118;
+  --paper:#F7F6F1;
+  --paper-raise:#FFFFFF;
+  --text:#1A2620;
+  --text-soft:#5C6B62;
+  --gold:#C8A24B;
+  --gold-deep:#A37F2E;
+  --hairline:#DCD9CE;
+  --hairline-dark:rgba(200,162,75,.28);
+  --display:"Bodoni Moda",serif;
+  --body:"Public Sans",system-ui,sans-serif;
+  --mono:"Spline Sans Mono",monospace;
+
+  font-family:var(--body);
+  background:var(--paper);
+  color:var(--text);
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+.wc-sell *{margin:0;padding:0;box-sizing:border-box}
+.wc-sell a{color:inherit}
+.wc-sell :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:2px}
+
+/* header */
+.wc-sell header{background:var(--ink);border-bottom:1px solid rgba(200,162,75,.25)}
+.wc-sell .nav{max-width:880px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.wc-sell .wordmark{display:flex;align-items:baseline;gap:12px;color:#F3EFE3;text-decoration:none}
+.wc-sell .wordmark .name{font-family:var(--display);font-size:20px;font-weight:600;letter-spacing:.04em}
+.wc-sell .wordmark .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold)}
+.wc-sell .back{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:#C9CFC4;text-decoration:none}
+.wc-sell .back:hover{color:var(--gold)}
+
+/* page head */
+.wc-sell .page{max-width:880px;margin:0 auto;padding:56px 28px 96px}
+.wc-sell .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--gold-deep);margin-bottom:14px}
+.wc-sell h1{font-family:var(--display);font-weight:500;font-size:clamp(34px,4.5vw,48px);line-height:1.08;color:var(--ink);margin-bottom:16px}
+.wc-sell .lede{color:var(--text-soft);max-width:58ch}
+
+/* form cards */
+.wc-sell .card{background:var(--paper-raise);border:1px solid var(--hairline);border-radius:4px;margin-top:28px;position:relative}
+.wc-sell .card-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:22px 28px 0}
+.wc-sell .card-title{font-family:var(--mono);font-size:11.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink);display:flex;align-items:center;gap:12px}
+.wc-sell .card-title::after{content:"";height:1px;flex:none;width:30px;background:var(--gold);opacity:.6}
+.wc-sell .card-sub{padding:8px 28px 0;color:var(--text-soft);font-size:14.5px;max-width:62ch}
+.wc-sell .card-body{padding:20px 28px 28px}
+
+.wc-sell .grid{display:grid;gap:18px}
+.wc-sell .grid.c2{grid-template-columns:1fr 1fr}
+.wc-sell label{display:block;font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:7px;letter-spacing:.01em}
+.wc-sell label .req{color:var(--gold-deep)}
+.wc-sell label .opt{font-weight:400;color:var(--text-soft)}
+.wc-sell input[type=text],.wc-sell input[type=email],.wc-sell input[type=tel],.wc-sell input[type=number],.wc-sell select,.wc-sell textarea{
+  width:100%;font-family:var(--body);font-size:15px;color:var(--text);
+  background:var(--paper);border:1px solid var(--hairline);border-radius:3px;
+  padding:12px 14px;transition:border-color .15s ease,box-shadow .15s ease;
+}
+.wc-sell input::placeholder,.wc-sell textarea::placeholder{color:#A9B0A8}
+.wc-sell input:focus,.wc-sell select:focus,.wc-sell textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(200,162,75,.18);background:#fff}
+.wc-sell select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235C6B62' stroke-width='1.5'/></svg>");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+.wc-sell textarea{min-height:104px;resize:vertical}
+
+/* coin rows */
+.wc-sell .coin{border:1px solid var(--hairline);border-radius:3px;background:var(--paper);padding:20px;margin-top:16px;position:relative}
+.wc-sell .coin:first-child{margin-top:0}
+.wc-sell .coin-no{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold-deep);margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.wc-sell .row-main{display:grid;grid-template-columns:minmax(0,1fr) 92px 170px;gap:14px}
+.wc-sell .row-cert{display:grid;grid-template-columns:220px minmax(0,1fr) 150px;gap:14px}
+.wc-sell .remove{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--text-soft);background:none;border:none;cursor:pointer;text-transform:uppercase}
+.wc-sell .remove:hover{color:#9B3B2E}
+.wc-sell .add-coin{font-family:var(--body);font-weight:600;font-size:13.5px;color:var(--ink);background:none;border:1px solid var(--gold);border-radius:3px;padding:9px 16px;cursor:pointer;transition:background .15s ease;text-decoration:none}
+.wc-sell .add-coin:hover{background:rgba(200,162,75,.12)}
+
+/* slab modifier checkboxes (CAC + WitterBrick) */
+.wc-sell .modifiers{display:flex;flex-wrap:wrap;gap:22px;margin-top:16px;padding-top:14px;border-top:1px dashed var(--hairline)}
+.wc-sell .cbx{display:inline-flex;align-items:center;gap:9px;cursor:pointer;margin:0;font-weight:500;font-size:14px;color:var(--ink)}
+.wc-sell .cbx input{appearance:none;width:18px;height:18px;border:1px solid var(--hairline);border-radius:3px;background:#fff;cursor:pointer;position:relative;flex:none;transition:border-color .15s ease,background .15s ease}
+.wc-sell .cbx input:hover{border-color:var(--gold)}
+.wc-sell .cbx input:checked{background:var(--gold);border-color:var(--gold)}
+.wc-sell .cbx input:checked::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.wc-sell .cbx input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+/* dropzones */
+.wc-sell .drop{display:block;border:1.5px dashed var(--hairline);border-radius:3px;background:var(--paper);text-align:center;padding:42px 24px;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.wc-sell .drop:hover,.wc-sell .drop.dragover{border-color:var(--gold);background:rgba(200,162,75,.06)}
+.wc-sell .drop .big{font-weight:600;font-size:15.5px;color:var(--ink)}
+.wc-sell .drop .small{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--text-soft);margin-top:6px}
+.wc-sell .drop input{display:none}
+
+/* inline status / error banners */
+.wc-sell .flash{margin-top:14px;border-radius:3px;padding:11px 14px;font-size:14px;font-weight:500}
+.wc-sell .flash-ok{background:rgba(200,162,75,.10);border:1px solid var(--hairline-dark);color:var(--gold-deep)}
+.wc-sell .flash-err{background:#FCEDE9;border:1px solid #E8C0B3;color:#9B3B2E;margin-top:24px}
+
+/* submit */
+.wc-sell .submit-wrap{margin-top:32px;text-align:center}
+.wc-sell .btn-submit{display:block;width:100%;font-family:var(--body);font-weight:700;font-size:16.5px;color:var(--ink-deep);
+  background:linear-gradient(180deg,#E0BE68,#BE9740);border:none;border-radius:3px;padding:18px 28px;cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 10px 26px rgba(15,46,34,.18);transition:filter .15s ease,transform .1s ease}
+.wc-sell .btn-submit:hover:not(:disabled){filter:brightness(1.06)}
+.wc-sell .btn-submit:active:not(:disabled){transform:translateY(1px)}
+.wc-sell .btn-submit:disabled{opacity:.6;cursor:not-allowed}
+.wc-sell .submit-note{margin-top:14px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--text-soft)}
+
+.wc-sell footer{border-top:1px solid var(--hairline);padding:28px;text-align:center;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--text-soft);background:var(--paper)}
+.wc-sell footer a{color:var(--gold-deep);text-decoration:none}
+.wc-sell footer a:hover{text-decoration:underline}
+
+@media (max-width:680px){
+  .wc-sell .grid.c2{grid-template-columns:1fr}
+  .wc-sell .row-main{grid-template-columns:1fr 1fr}
+  .wc-sell .row-main > :first-child{grid-column:1 / -1}
+  .wc-sell .row-cert{grid-template-columns:1fr 1fr}
+  .wc-sell .row-cert > :first-child{grid-column:1 / -1}
+  .wc-sell .card-head,.wc-sell .card-sub{padding-left:20px;padding-right:20px}
+  .wc-sell .card-body{padding:18px 20px 24px}
+}
+@media (prefers-reduced-motion: reduce){
+  .wc-sell *,.wc-sell *::before,.wc-sell *::after{transition-duration:.01ms!important}
+}
+      `}</style>
+    </>
   );
 }
