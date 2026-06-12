@@ -25,6 +25,27 @@ const CONTENT_API = "https://content.airtable.com/v0";
 /** Attachment field on the Buyback Items table that holds the customer's slab photo. */
 const PHOTO_FIELD = "Photo";
 
+/**
+ * Extract the offending field name out of an Airtable UNKNOWN_FIELD_NAME error.
+ *
+ * Airtable's response body is a JSON string like:
+ *   {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"WitterBrick\""}}
+ *
+ * Because we throw that body verbatim, the field name is surrounded by escaped
+ * quotes (`\"WitterBrick\"`). A naive `"([^"]+)"` regex would capture
+ * `WitterBrick\` (trailing backslash), which then fails to match the real
+ * object key and we'd loop forever stripping nothing. So we look specifically
+ * for the `Unknown field name: \"...\"` shape (and fall back to plain quotes
+ * in case the body is unescaped).
+ */
+function parseUnknownField(msg: string): string | null {
+  const escaped = /Unknown field name:\s*\\"([^"\\]+)\\"/.exec(msg);
+  if (escaped) return escaped[1];
+  const plain = /Unknown field name:\s*"([^"]+)"/.exec(msg);
+  if (plain) return plain[1];
+  return null;
+}
+
 
 
 interface AirtableRecord<T = Record<string, unknown>> {
@@ -115,12 +136,12 @@ export async function upsertCustomer(contact: SellerContact): Promise<string> {
       return created.id;
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
-      if (unknown && attempt < 4) {
+      const field = parseUnknownField(msg);
+      if (field && !dropped.has(field) && attempt < 4) {
         console.warn(
-          `[upsertCustomer] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+          `[upsertCustomer] Airtable rejected unknown field "${field}" — stripping and retrying.`,
         );
-        dropped.add(unknown[1]);
+        dropped.add(field);
         continue;
       }
       throw e;
@@ -193,12 +214,12 @@ export async function createBuyback(input: CreateBuybackInput): Promise<string> 
       return created.id;
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
-      if (unknown && attempt < 5) {
+      const field = parseUnknownField(msg);
+      if (field && !dropped.has(field) && attempt < 5) {
         console.warn(
-          `[createBuyback] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+          `[createBuyback] Airtable rejected unknown field "${field}" — stripping and retrying.`,
         );
-        dropped.add(unknown[1]);
+        dropped.add(field);
         continue;
       }
       throw e;
@@ -260,12 +281,14 @@ export async function addItems(buybackId: string, items: BuybackItem[]): Promise
         break;
       } catch (e: any) {
         const msg = String(e?.message ?? e);
-        const unknown = /UNKNOWN_FIELD_NAME.*"([^"]+)"/.exec(msg);
-        if (unknown && attempt < 3) {
+        const field = parseUnknownField(msg);
+        // Guard against an infinite retry loop: if the parser somehow
+        // returned a name we already tried to drop, bail out.
+        if (field && !dropped.has(field) && attempt < 5) {
           console.warn(
-            `[addItems] Airtable rejected unknown field "${unknown[1]}" — stripping and retrying.`,
+            `[addItems] Airtable rejected unknown field "${field}" — stripping and retrying.`,
           );
-          dropped.add(unknown[1]);
+          dropped.add(field);
           continue;
         }
         throw e;
