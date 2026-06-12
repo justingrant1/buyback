@@ -1,11 +1,15 @@
 /**
  * Shipping-label creation behind a small interface.
  *
- * Uses Shippo's REST API to buy a prepaid FedEx (or cheapest) label that the
- * customer uses to ship coins to us. When SHIPPO_API_TOKEN is not set (e.g.
- * before the key is provided), this degrades to a deterministic STUB so the
- * rest of the flow — emails, Airtable updates, the admin UI — can be built and
- * tested end-to-end without a live account.
+ * Uses Shippo's REST API to buy a prepaid FedEx label that the customer uses to
+ * ship coins to us. Service tier is selected based on the offer amount:
+ *   - Offer  < $5,000  -> FedEx 2 Day
+ *   - Offer >= $5,000  -> FedEx Standard Overnight
+ *
+ * When SHIPPO_API_TOKEN is not set (e.g. before the key is provided), this
+ * degrades to a deterministic STUB so the rest of the flow — emails, Airtable
+ * updates, the admin UI — can be built and tested end-to-end without a live
+ * account.
  *
  * Swap in the real account by setting SHIPPO_API_TOKEN and the SHIP_TO_* vars.
  */
@@ -36,16 +40,46 @@ export interface LabelResult {
 
 const SHIPPO_API = "https://api.goshippo.com";
 
+/** Offer value at/above which we ship Standard Overnight instead of 2 Day. */
+const OVERNIGHT_THRESHOLD_USD = 5000;
+
+/**
+ * Pick the FedEx service tier based on the offer amount.
+ *  - >= $5,000  => FedEx Standard Overnight
+ *  - otherwise  => FedEx 2 Day
+ */
+export function fedexServiceForOffer(offerAmount?: number | null): {
+  token: "fedex_2_day" | "fedex_standard_overnight";
+  label: string;
+  match: RegExp;
+} {
+  if ((offerAmount ?? 0) >= OVERNIGHT_THRESHOLD_USD) {
+    return {
+      token: "fedex_standard_overnight",
+      label: "FedEx Standard Overnight",
+      match: /standard.?overnight/i,
+    };
+  }
+  return {
+    token: "fedex_2_day",
+    label: "FedEx 2 Day",
+    match: /2.?day/i,
+  };
+}
+
 /**
  * Create a prepaid inbound label (customer -> us). `from` is the customer.
  * `parcelOz` lets you size the box; defaults to a small padded mailer.
+ * `offerAmount` selects FedEx tier: <$5k => 2 Day, >=$5k => Standard Overnight.
  */
 export async function createInboundLabel(opts: {
   from: ShipFromAddress;
   parcelOz?: number;
   reference?: string;
+  offerAmount?: number | null;
 }): Promise<LabelResult> {
   const to = ourReceivingAddress();
+  const svc = fedexServiceForOffer(opts.offerAmount);
 
   if (!hasShippoCreds()) {
     // ---- STUB MODE ----
@@ -55,11 +89,12 @@ export async function createInboundLabel(opts: {
       trackingNumber: fake,
       labelUrl: `https://example.com/stub-label/${fake}.pdf`,
       carrier: "FedEx",
-      service: "FEDEX_2_DAY",
+      service: svc.label,
       cost: 0,
       stub: true,
     };
   }
+
 
   try {
     // 1. Create a shipment to get rates.
@@ -84,10 +119,24 @@ export async function createInboundLabel(opts: {
     if (!rates.length) {
       return errLabel("No Shippo rates returned for this address.");
     }
-    // Prefer FedEx 2-day-ish; otherwise cheapest.
+
+    // FedEx ONLY. Pick the tier based on offer amount (2 Day vs Standard Overnight).
+    const fedexRates = rates.filter((r) => /fedex/i.test(r.provider));
+    if (!fedexRates.length) {
+      return errLabel(
+        "No FedEx rates available for this address. Verify a FedEx carrier account is connected in Shippo.",
+      );
+    }
+
     const preferred =
-      rates.find((r) => /fedex/i.test(r.provider) && /2.?day/i.test(r.servicelevel?.name ?? "")) ??
-      rates.sort((a, b) => Number(a.amount) - Number(b.amount))[0];
+      fedexRates.find(
+        (r) =>
+          svc.match.test(r.servicelevel?.name ?? "") ||
+          r.servicelevel?.token === svc.token,
+      ) ??
+      // Fallback: take the cheapest FedEx rate if the exact tier isn't offered.
+      fedexRates.sort((a, b) => Number(a.amount) - Number(b.amount))[0];
+
 
     // 2. Buy the label (transaction).
     const tx = await shippoPost("/transactions/", {

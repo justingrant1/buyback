@@ -66,6 +66,7 @@ export async function POST(
   if (!labelUrl) {
     const label = await createInboundLabel({
       reference: buyback.ref,
+      offerAmount: buyback.offerAmount ?? 0,
       from: {
         name: buyback.customerName,
         email: buyback.customerEmail,
@@ -76,6 +77,7 @@ export async function POST(
         country: "US",
       },
     });
+
     if (!label.ok) {
       return NextResponse.json(
         { error: label.error ?? "Could not generate a shipping label." },
