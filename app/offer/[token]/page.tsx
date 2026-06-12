@@ -6,36 +6,84 @@ import { useParams } from "next/navigation";
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
 /**
- * Loads the Google Maps JS Places library exactly once, even if multiple
- * components mount. Resolves the global `google` object so callers can use
- * `new google.maps.places.Autocomplete(...)`.
+ * Loads the Google Maps JS API using Google's recommended async bootstrap
+ * pattern (https://goo.gle/js-api-loading). The bootstrap exposes
+ * `google.maps.importLibrary(...)`, which we then call to pull in the
+ * `places` library only — no `?libraries=places` query string and no
+ * "loaded synchronously" warning.
+ *
+ * Resolves to the `places` namespace (with both the new
+ * `PlaceAutocompleteElement` and the legacy `Autocomplete`) or `null` if the
+ * key isn't set / the script fails.
  */
-function loadGoogleMaps(): Promise<any> {
+function loadGooglePlaces(): Promise<any> {
   if (typeof window === "undefined") return Promise.resolve(null);
   if (!GOOGLE_MAPS_KEY) return Promise.resolve(null);
   const w = window as any;
-  if (w.google?.maps?.places) return Promise.resolve(w.google);
 
-  const existing = document.getElementById("gmaps-places") as HTMLScriptElement | null;
-  if (existing) {
-    return new Promise((resolve) => {
-      existing.addEventListener("load", () => resolve(w.google ?? null));
-    });
+  // Already loaded.
+  if (w.google?.maps?.importLibrary) {
+    return w.google.maps.importLibrary("places");
   }
 
-  return new Promise((resolve) => {
-    const script = document.createElement("script");
-    script.id = "gmaps-places";
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-      GOOGLE_MAPS_KEY,
-    )}&libraries=places&v=weekly`;
-    script.onload = () => resolve(w.google ?? null);
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
+  // Already loading from a prior mount — wait for it.
+  if (w.__gmapsLoading) {
+    return w.__gmapsLoading;
+  }
+
+  w.__gmapsLoading = new Promise<any>((resolve) => {
+    // Google's official inline bootstrap, transcribed verbatim from
+    // https://developers.google.com/maps/documentation/javascript/load-maps-js-api
+    // It registers `google.maps.importLibrary` and then we ask for `places`.
+    (function (g: any) {
+      let h: any,
+        a: any,
+        k: any,
+        p = "The Google Maps JavaScript API",
+        c = "google",
+        l = "importLibrary",
+        q = "__ib__",
+        m: any = document,
+        b: any = window;
+      b = b[c] || (b[c] = {});
+      const d = b.maps || (b.maps = {});
+      const r = new Set<string>();
+      const e = new URLSearchParams();
+      const u = () =>
+        h ||
+        (h = new Promise<void>(async (f, n) => {
+          a = m.createElement("script");
+          e.set("libraries", Array.from(r).join(","));
+
+          for (k in g) {
+            e.set(
+              k.replace(/[A-Z]/g, (t: string) => "_" + t[0].toLowerCase()),
+              g[k],
+            );
+          }
+          e.set("callback", c + ".maps." + q);
+          a.src = `https://maps.${c}apis.com/maps/api/js?` + e;
+          d[q] = f;
+          a.onerror = () => (h = n(Error(p + " could not load.")));
+          a.nonce = m.querySelector("script[nonce]")?.nonce || "";
+          m.head.append(a);
+        }));
+      d[l]
+        ? console.warn(p + " only loads once. Ignoring:", g)
+        : (d[l] = (f: string, ...n: any[]) => r.add(f) && u().then(() => d[l](f, ...n)));
+    })({ key: GOOGLE_MAPS_KEY, v: "weekly" });
+
+
+    // Now actually ask for places. importLibrary will trigger the script load.
+    w.google.maps
+      .importLibrary("places")
+      .then((places: any) => resolve(places))
+      .catch(() => resolve(null));
   });
+
+  return w.__gmapsLoading;
 }
+
 
 /**
  * Splits a google.maps.places.PlaceResult into our { street, city, state, zip }
@@ -112,15 +160,23 @@ export default function OfferPage() {
   // Attach Google Places autocomplete to the street input once the offer has
   // loaded (and only if we have a key configured). When the customer picks a
   // suggestion, all four address fields are auto-populated.
+  //
+  // We use the legacy `places.Autocomplete` widget because it can be wired to
+  // an existing <input>, which keeps our styled UI intact. The new
+  // `PlaceAutocompleteElement` is a custom element that wants to render its
+  // own input — switching to it would require redesigning this form. The
+  // legacy widget is still supported (Google's deprecation notice says at
+  // least 12 months notice will be given before removal).
   useEffect(() => {
     if (!offer) return;
     if (!streetInputRef.current) return;
     if (autocompleteRef.current) return; // already wired
 
     let cancelled = false;
-    loadGoogleMaps().then((google) => {
-      if (cancelled || !google || !streetInputRef.current) return;
-      const ac = new google.maps.places.Autocomplete(streetInputRef.current, {
+    loadGooglePlaces().then((places: any) => {
+      if (cancelled || !places || !streetInputRef.current) return;
+      if (!places.Autocomplete) return;
+      const ac = new places.Autocomplete(streetInputRef.current, {
         types: ["address"],
         componentRestrictions: { country: ["us"] },
         fields: ["address_components", "formatted_address"],
@@ -139,6 +195,7 @@ export default function OfferPage() {
       cancelled = true;
     };
   }, [offer]);
+
 
 
   async function decide(decision: "accept" | "decline") {

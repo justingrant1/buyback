@@ -35,7 +35,9 @@ function rowFromItem(item: BuybackItem): Row {
     denomination: item.denomination,
     grade: item.grade ?? "",
     cac: item.cac,
+    witterBrick: item.witterBrick,
     photoDataUrl: item.photoDataUrl,
+
     ...((item as any).dealerAsk != null ? { dealerAsk: (item as any).dealerAsk } : {}),
     ...((item as any).faceValue != null ? { faceValue: (item as any).faceValue } : {}),
   } as Row;
@@ -399,8 +401,37 @@ export default function SellPage() {
                         placeholder="MS65"
                       />
                     </div>
+
+                    {/* Slab modifiers: CAC sticker (third-party verification) and
+                        WitterBrick (our in-house premium tier). Both are pure
+                        booleans on the item — staff use them downstream. */}
+                    <div className="sm:col-span-6 flex flex-wrap items-center gap-x-6 gap-y-2 pt-1">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                          checked={!!row.cac}
+                          onChange={(e) =>
+                            updateRow(row._key, { cac: e.target.checked })
+                          }
+                        />
+                        CAC graded
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                          checked={!!row.witterBrick}
+                          onChange={(e) =>
+                            updateRow(row._key, { witterBrick: e.target.checked })
+                          }
+                        />
+                        WitterBrick
+                      </label>
+                    </div>
                   </>
                 )}
+
 
                 {row.category === "Junk Silver" && (
                   <div className="sm:col-span-2">

@@ -177,6 +177,8 @@ export async function addItems(buybackId: string, items: BuybackItem[]): Promise
             Denomination: it.denomination ?? "",
             Grade: it.grade ?? "",
             CAC: Boolean(it.cac),
+            WitterBrick: Boolean(it.witterBrick),
+
             "CDN Bid": it.cdnBid ?? null,
             "CDN Ask": it.cdnAsk ?? null,
             "Dealer Ask": it.dealerAsk ?? null,
@@ -343,7 +345,9 @@ export async function listItems(
       denomination: f["Denomination"] ?? "",
       grade: f["Grade"] ?? "",
       cac: Boolean(f["CAC"]),
+      witterBrick: Boolean(f["WitterBrick"]),
       cdnBid: f["CDN Bid"] ?? null,
+
       cdnAsk: f["CDN Ask"] ?? null,
       dealerAsk: f["Dealer Ask"] ?? null,
       offer: f["Offer"] ?? null,

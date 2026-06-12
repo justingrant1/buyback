@@ -28,6 +28,13 @@ export interface BuybackItem {
   denomination?: string;
   grade?: string;
   cac?: boolean;
+  /**
+   * Customer-declared in-house tier flag ("WitterBrick"). Persisted as a
+   * boolean on the Buyback Items table; staff use it downstream to spot
+   * premium-eligible coins. Does not currently affect the auto-estimate.
+   */
+  witterBrick?: boolean;
+
   cdnBid?: number | null;
   cdnAsk?: number | null;
   dealerAsk?: number | null;
